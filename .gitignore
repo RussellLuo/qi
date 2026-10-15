@@ -1,0 +1,8 @@
+.DS_Store
+.env
+.env.*
+.qi/
+/dist/
+.ruff_cache/
+*.swp
+__pycache__/

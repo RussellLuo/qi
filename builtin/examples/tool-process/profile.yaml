@@ -1,0 +1,19 @@
+# Build with the tool-process Extension; place greet beside qi.
+apiVersion: qi.profile/v1alpha1
+bundles: [base]
+instances:
+  - id: model
+    plugin: qi/llm/openai-compatible
+    config:
+      endpoint: https://api.openai.com/v1/chat/completions
+      api_key_env: OPENAI_API_KEY
+      timeout_seconds: 120
+      catalog:
+        - id: greet-model
+          model: your-model
+  - id: greet
+    plugin: example/tool-process
+  - id: headless
+    plugin: qi/cli/headless
+    config:
+      model: greet-model

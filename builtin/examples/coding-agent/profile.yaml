@@ -1,0 +1,23 @@
+# Builtin capabilities only. Set the vendor model and prepare OPENAI_API_KEY.
+apiVersion: qi.profile/v1alpha1
+bundles: [base]
+instances:
+  - id: session-persistence
+    plugin: qi/session/persistence-jsonl
+    config:
+      directory: .qi/coding-agent/sessions
+  - id: model
+    plugin: qi/llm/openai-compatible
+    config:
+      endpoint: https://api.openai.com/v1/chat/completions
+      api_key_env: OPENAI_API_KEY
+      timeout_seconds: 120
+      catalog:
+        - id: coding-model
+          model: your-model
+  - id: fs
+    plugin: qi/tools/fs
+  - id: headless
+    plugin: qi/cli/headless
+    config:
+      model: coding-model

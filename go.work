@@ -1,0 +1,10 @@
+go 1.27
+
+use (
+	./kernel
+	./builtin
+)
+
+// Unpublished development requirements; local workspace only.
+replace github.com/RussellLuo/qi/kernel v0.0.0 => ./kernel
+replace github.com/RussellLuo/qi/builtin v0.0.0 => ./builtin

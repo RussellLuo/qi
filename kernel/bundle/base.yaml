@@ -1,0 +1,16 @@
+apiVersion: qi.profile/v1alpha1
+id: base
+title: Core AgentLoop services
+instances:
+  - id: events
+    plugin: gordis/events
+  - id: session
+    plugin: qi/session
+  - id: llm-runtime
+    plugin: qi/llm
+  - id: prompt-runtime
+    plugin: qi/prompt
+  - id: tools
+    plugin: qi/tools
+  - id: agent
+    plugin: qi/agent-loop
