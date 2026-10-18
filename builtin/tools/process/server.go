@@ -1,179 +1,53 @@
 package process
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
-	"sync"
-	"time"
+	"fmt"
+	"os"
 
 	"github.com/RussellLuo/gordis"
-	gordisprocess "github.com/RussellLuo/gordis/process"
+	rpc "github.com/RussellLuo/gordis-rpc"
 	"github.com/RussellLuo/qi/kernel/core/protocol"
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
 
-// ServePlugin owns a minimal local Host for one process session. The ordinary
-// Plugin Spec supplies all declarations; configuration is decoded and validated
-// by Gordis before activation. At most one options value may be supplied.
-func ServePlugin(ctx context.Context, in io.ReadCloser, out io.WriteCloser, prototype gordis.Plugin, options ...ServerOptions) error {
-	if len(options) > 1 {
-		return errors.New("toolprocess: at most one ServerOptions is allowed")
-	}
-	spec, err := inspectPlugin(prototype)
-	if err != nil {
-		return err
-	}
-	var o ServerOptions
-	if len(options) == 1 {
-		o = options[0]
-	}
-	identity, err := pluginIdentity(spec.ID, o.PackageID, o.Version)
-	if err != nil {
-		return err
-	}
-	runtime := tools.NewRuntime()
-	defer runtime.Close() // Also covers NewHost failure and an unmounted provider.
-	host, err := gordis.NewHost(&runtimeProvider{runtime: runtime}, prototype)
-	if err != nil {
-		return err
-	}
-	s := &pluginSession{host: host, runtime: runtime, spec: spec, identity: identity, stopped: make(chan struct{})}
-	defer s.dispose()
-	return gordisprocess.Serve(ctx, in, out, identity, defaultLimits(o.Limits), s.handler())
-}
-
-// The provider's constructor captures this session's Runtime, never a global.
-type runtimeProvider struct{ runtime *tools.Runtime }
-
 const providerID = "qi/tools/process/runtime"
 
-func (p *runtimeProvider) Spec() gordis.PluginSpec {
-	return gordis.PluginSpec{ID: providerID, Provides: []gordis.ServiceSpec{tools.RuntimeKey.Spec()},
-		New: func() gordis.Plugin { return &runtimeProvider{runtime: p.runtime} }}
+type runtimeProvider struct{ capacity int }
+
+func (plugin *runtimeProvider) Spec() gordis.PluginSpec {
+	return gordis.PluginSpec{
+		ID:       providerID,
+		New:      func() gordis.Plugin { return &runtimeProvider{capacity: plugin.capacity} },
+		Provides: []gordis.ServiceSpec{tools.RuntimeKey.Spec(), ProviderKey.Spec()},
+	}
 }
 
-func (p *runtimeProvider) Activate(_ context.Context, scope *gordis.Scope) error {
-	if err := scope.Defer("close process Tool Runtime", func(context.Context) error { p.runtime.Close(); return nil }); err != nil {
+func (plugin *runtimeProvider) Activate(_ context.Context, scope *gordis.Scope) error {
+	runtime := tools.NewRuntime()
+	if err := scope.Defer("runtime", func(context.Context) error { runtime.Close(); return nil }); err != nil {
+		runtime.Close()
 		return err
 	}
-	return scope.Provide(tools.RuntimeKey, p.runtime)
-}
-
-type pluginSession struct {
-	host          *gordis.Host
-	runtime       *tools.Runtime
-	spec          gordis.PluginSpec
-	identity      gordisprocess.Identity
-	mu            sync.Mutex
-	closing       bool
-	work          sync.WaitGroup
-	stopOnce      sync.Once
-	stopped       chan struct{}
-	stopErr       error
-	monitorCancel context.CancelFunc
-	monitorDone   chan struct{}
-}
-
-func (s *pluginSession) handler() gordisprocess.Handler {
-	return gordisprocess.Handler{
-		InitializeSession: func(ctx context.Context, caller gordisprocess.Caller, _ gordisprocess.Session, config json.RawMessage) error {
-			if _, err := s.host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "runtime", Plugin: providerID}); err != nil {
-				s.quiesce()
-				return err
-			}
-			if _, err := s.host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "tool", Plugin: s.spec.ID, Config: append(json.RawMessage(nil), config...)}); err != nil {
-				s.quiesce()
-				return err
-			}
-			// Reject unsupported definitions before the session becomes ready.
-			if _, err := s.listTools(); err != nil {
-				s.quiesce()
-				return err
-			}
-			monitorCtx, cancel := context.WithCancel(context.Background())
-			s.monitorCancel, s.monitorDone = cancel, make(chan struct{})
-			go s.monitor(monitorCtx, caller)
-			return nil
-		},
-		Admit: func(method string) (func(), error) {
-			if method != MethodDescribe && method != MethodListTools && method != MethodCall {
-				return nil, &gordisprocess.RPCError{Code: "method", Message: "unknown ToolPackage method"}
-			}
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if s.closing {
-				return nil, gordisprocess.ErrClosed
-			}
-			s.work.Add(1)
-			var once sync.Once
-			return func() { once.Do(s.work.Done) }, nil
-		},
-		Call:    s.call,
-		Quiesce: s.quiesce,
-		Dispose: s.dispose,
+	if err := scope.Provide(tools.RuntimeKey, runtime); err != nil {
+		return err
 	}
+	return scope.Provide(ProviderKey, Provider(&exporter{
+		runtime: runtime,
+		pending: make(chan struct{}, plugin.capacity),
+	}))
 }
 
-func (s *pluginSession) quiesce() {
-	s.stopOnce.Do(func() {
-		s.mu.Lock()
-		s.closing = true
-		s.mu.Unlock()
-		if s.monitorCancel != nil {
-			s.monitorCancel()
-		}
-		// Shutdown must start before waiting for workers: Scope stop callbacks
-		// may be exactly what a cancelled, still-running worker needs to exit.
-		go func() {
-			if s.monitorDone != nil {
-				<-s.monitorDone
-			}
-			s.stopErr = s.host.Shutdown(context.Background())
-			close(s.stopped)
-		}()
-	})
+// exporter is an ordinary Service over the same Runtime used by business Plugins.
+// ProviderBinding validates its definitions after all Unit instances are Ready.
+type exporter struct {
+	runtime *tools.Runtime
+	pending chan struct{}
 }
 
-func (s *pluginSession) dispose() gordisprocess.CleanupResult {
-	s.quiesce()
-	s.work.Wait()
-	<-s.stopped
-	if s.stopErr != nil {
-		return gordisprocess.CleanupResult{Error: "tool plugin cleanup failed"}
-	}
-	for _, snapshot := range s.host.Snapshot() {
-		if !snapshot.CleanupComplete || snapshot.CleanupError != "" || snapshot.Leases != 0 || len(snapshot.Residuals) != 0 ||
-			(snapshot.Phase != gordis.PhaseStopped && snapshot.Generation != 0) {
-			return gordisprocess.CleanupResult{Error: "tool plugin cleanup incomplete"}
-		}
-	}
-	return gordisprocess.CleanupResult{Complete: true}
-}
-
-func (s *pluginSession) monitor(ctx context.Context, caller gordisprocess.Caller) {
-	defer close(s.monitorDone)
-	ticker := time.NewTicker(5 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			for _, snapshot := range s.host.Snapshot() {
-				if snapshot.Failure != "" && ctx.Err() == nil {
-					_ = gordisprocess.ReportFailure(ctx, caller, errors.New("tool plugin failed"))
-					return
-				}
-			}
-		}
-	}
-}
-
-func (s *pluginSession) listTools() ([]Tool, error) {
-	snapshot, err := s.runtime.Prepare()
+func (plugin *exporter) ListTools(context.Context) ([]Tool, error) {
+	snapshot, err := plugin.runtime.Prepare()
 	if err != nil {
 		return nil, err
 	}
@@ -181,120 +55,105 @@ func (s *pluginSession) listTools() ([]Tool, error) {
 	return describeTools(snapshot.Descriptions())
 }
 
-func describeTools(descriptions []tools.DefinitionInfo) ([]Tool, error) {
-	var definitions []Tool
-	for _, d := range descriptions {
-		if d.DeferLoading || d.Timeout < 0 || d.Timeout > MaxToolTimeout || d.Timeout%time.Millisecond != 0 {
-			return nil, errors.New("toolprocess: unsupported deferred Tool or timeout")
-		}
-		definitions = append(definitions, Tool{
-			Name: d.Name, Description: d.Description, Parameters: json.RawMessage(d.Parameters), Output: json.RawMessage(d.Output),
-			TimeoutMillis: d.Timeout.Milliseconds(), FailureMode: FailureMode(d.FailureMode),
-		})
-	}
-	return definitions, ValidateTools(definitions)
-}
-
-func (s *pluginSession) call(ctx context.Context, _ gordisprocess.Caller, method string, raw json.RawMessage) (any, error) {
-	switch method {
-	case MethodDescribe:
-		return Metadata{ID: s.identity.Package, Version: s.identity.Version, Capabilities: []string{CapabilityTools}}, nil
-	case MethodListTools:
-		definitions, err := s.listTools()
-		if err != nil {
-			return nil, invalidResponse("unsupported Tool definitions")
-		}
-		return definitions, nil
-	case MethodCall:
-		var request CallRequest
-		if decodeStrict(raw, &request) != nil || ValidateCall(request) != nil {
-			return nil, invalidResponse("invalid Tool call")
-		}
-		snapshot, err := s.runtime.Prepare()
-		if err != nil {
-			return nil, invalidResponse("Tool Runtime unavailable")
-		}
-		defer snapshot.Close()
-		descriptions := snapshot.Descriptions()
-		if _, err := describeTools(descriptions); err != nil {
-			return nil, invalidResponse("unsupported Tool definitions")
-		}
-		call, err := snapshot.Prepare(protocol.ToolCall{ID: protocol.ToolCallID(request.Invocation.ToolCallID), Name: request.Tool, Arguments: string(request.Arguments)})
-		if err != nil {
-			return nil, invalidResponse("invalid Tool call")
-		}
-		defer call.Close()
-		// Use the same deadline outside Runtime so a pre-dispatch abort can
-		// still distinguish a timeout from explicit cancellation on the wire.
-		for _, d := range descriptions {
-			if d.Name == request.Tool && d.Timeout > 0 {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, d.Timeout)
-				defer cancel()
-				break
-			}
-		}
-		result, executeErr := call.Execute(ctx) // Holds the Snapshot until the actual worker returns.
-		return wireResult(ctx, result, executeErr)
+func (plugin *exporter) CallTool(ctx context.Context, request CallRequest) (CallResponse, error) {
+	select {
+	case plugin.pending <- struct{}{}:
+		defer func() { <-plugin.pending }()
 	default:
-		return nil, &gordisprocess.RPCError{Code: "method", Message: "unknown ToolPackage method"}
+		return CallResponse{Error: &CallError{Code: CodeBackpressure, Message: "Tool process is at capacity"}}, nil
 	}
+	response, err := plugin.call(ctx, request)
+	if err != nil {
+		var failure *CallError
+		if !errors.As(err, &failure) {
+			failure = invalidResponse("invalid Tool call")
+		}
+		response = CallResponse{Error: failure}
+	}
+	return response, nil
 }
 
-func invalidResponse(message string) error {
-	return &gordisprocess.RPCError{Code: CodeHostValidation, Message: message}
+func (plugin *exporter) call(ctx context.Context, request CallRequest) (CallResponse, error) {
+	if ValidateCall(request) != nil {
+		return CallResponse{}, invalidResponse("invalid Tool call")
+	}
+	snapshot, err := plugin.runtime.Prepare()
+	if err != nil {
+		return CallResponse{}, invalidResponse("Runtime unavailable")
+	}
+	defer snapshot.Close()
+	descriptions := snapshot.Descriptions()
+	if _, err = describeTools(descriptions); err != nil {
+		return CallResponse{}, invalidResponse("unsupported Tool definitions")
+	}
+	call, err := snapshot.Prepare(protocol.ToolCall{ID: protocol.ToolCallID(request.ToolCallID), Name: request.Tool, Arguments: string(request.Arguments)})
+	if err != nil {
+		return CallResponse{}, invalidResponse("unknown Tool")
+	}
+	defer call.Close()
+	// Keep the deadline visible to wireResult: Runtime's private execution
+	// context is otherwise lost in ABORTED_BEFORE_DISPATCH results.
+	for _, d := range descriptions {
+		if d.Name == request.Tool && d.Timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d.Timeout)
+			defer cancel()
+			break
+		}
+	}
+	result, err := call.Execute(ctx)
+	return wireResult(ctx, result, err)
 }
 
-func wireResult(ctx context.Context, result tools.ExecutionResult, executeErr error) (any, error) {
-	if result.Meta != nil || len(result.AdditionalContexts) != 0 || result.ConcludesTurn || len(result.Content) != 1 {
-		return nil, invalidResponse("unsupported Tool result")
+func unitOptions(prototype gordis.Plugin, supplied ...ServerOptions) (rpc.ServeUnitOptions, error) {
+	if len(supplied) > 1 {
+		return rpc.ServeUnitOptions{}, errors.New("toolprocess: at most one ServerOptions")
 	}
-	text, ok := result.Content[0].(protocol.TextBlock)
-	if !ok {
-		return nil, invalidResponse("unsupported Tool content")
+	spec, err := inspectPlugin(prototype)
+	if err != nil {
+		return rpc.ServeUnitOptions{}, err
 	}
-	if result.IsError {
-		if result.Error == nil || text.Text != "Error: "+result.Error.Message {
-			return nil, invalidResponse("unsupported Tool failure")
-		}
-		code := ""
-		if result.Error.Info != nil {
-			code = result.Error.Info.Code
-		}
-		switch code {
-		case "ABORTED_BEFORE_DISPATCH":
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return nil, &gordisprocess.RPCError{Code: CodeTimeout, Message: "Tool call timed out"}
-			}
-			return nil, &gordisprocess.RPCError{Code: CodeCancelled, Message: "Tool call cancelled"}
-		case "cancelled":
-			return nil, &gordisprocess.RPCError{Code: CodeCancelled, Message: "Tool call cancelled"}
-		case "timeout":
-			return nil, &gordisprocess.RPCError{Code: CodeTimeout, Message: "Tool call timed out"}
-		case "invalid_result", "invalid_arguments":
-			return nil, invalidResponse("invalid Tool value")
-		case "panic":
-			return nil, &gordisprocess.RPCError{Code: CodeTransport, Message: "Tool execution panicked"}
-		}
-		// Native errors can contain arguments or credentials. Preserve the
-		// ToolPackage/1 business-error category with a bounded safe message.
-		return CallResponse{Error: NewToolError("tool execution failed")}, nil
+	var options ServerOptions
+	if len(supplied) == 1 {
+		options = supplied[0]
 	}
-	if executeErr != nil || text.Text != string(result.Value) || validateJSONDocument(result.Value, MaxResultBytes, "result") != nil {
-		return nil, invalidResponse("invalid Tool result")
+	if err = checkRequirements(spec, options.Imports); err != nil {
+		return rpc.ServeUnitOptions{}, err
 	}
-	return CallResponse{Result: append(json.RawMessage(nil), result.Value...)}, nil
+	identity, err := pluginIdentity(spec.ID, options.ID, options.Version)
+	if err != nil {
+		return rpc.ServeUnitOptions{}, err
+	}
+	limits := options.Limits.defaults()
+	return rpc.ServeUnitOptions{
+		Identity: identity,
+		Limits:   rpc.Limits{MaxMessage: limits.MaxMessage},
+		Unit: rpc.Unit{
+			Plugins: []gordis.Plugin{&runtimeProvider{capacity: limits.MaxPending}, prototype},
+			Instances: []gordis.InstanceSpec{
+				{ID: "runtime", Plugin: providerID},
+				{ID: "tool", Plugin: spec.ID},
+			},
+			ConfigTarget: "tool",
+			Imports:      options.Imports,
+			Exports:      []rpc.Export{{Instance: "runtime", Binding: ProviderBinding}},
+		},
+	}, nil
 }
 
-func decodeStrict(raw json.RawMessage, value any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(value); err != nil {
+func ServePlugin(ctx context.Context, plugin gordis.Plugin, options ...ServerOptions) error {
+	unit, err := unitOptions(plugin, options...)
+	if err != nil {
 		return err
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("toolprocess: trailing JSON data")
+	return rpc.ServeUnit(ctx, unit)
+}
+
+// Main serves a tool Plugin.
+func Main(plugin gordis.Plugin, options ...ServerOptions) int {
+	if err := ServePlugin(context.Background(), plugin, options...); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
-	return nil
+	return 0
 }

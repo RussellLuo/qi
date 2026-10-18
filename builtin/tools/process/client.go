@@ -4,119 +4,110 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
-	"time"
 
-	gordisprocess "github.com/RussellLuo/gordis/process"
+	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/qi/builtin/tools/process/internal/contract"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-type diagnosticsProvider interface {
-	Snapshot() gordisprocess.Diagnostics
-}
-
 type Client struct {
-	caller gordisprocess.Caller
+	loader  interface{ Exited() bool }
+	remote  Provider
+	pending chan struct{}
 }
 
-func NewClient(caller gordisprocess.Caller) (*Client, error) {
-	if caller == nil {
-		return nil, errors.New("toolprocess: nil process caller")
-	}
-	return &Client{caller: caller}, nil
+func NewClient(session *rpc.Session) (*Client, error) {
+	return newClient(session, (Limits{}).defaults().MaxPending)
 }
 
-func (c *Client) Describe(ctx context.Context) (Metadata, error) {
-	var metadata Metadata
-	if err := c.caller.Call(ctx, MethodDescribe, nil, &metadata); err != nil {
-		return Metadata{}, c.mapCallError(ctx, err)
+func newClient(session *rpc.Session, maxPending int) (*Client, error) {
+	if session == nil {
+		return nil, errors.New("toolprocess: nil session")
 	}
-	if err := ValidateMetadata(metadata); err != nil {
-		return Metadata{}, &CallError{Code: CodeHostValidation, Message: "invalid package metadata", cause: err}
+	remote, err := rpc.ExportClient(session, ProviderKey)
+	if err != nil {
+		return nil, err
 	}
-	metadata.Capabilities = append([]string(nil), metadata.Capabilities...)
-	return metadata, nil
+	return &Client{
+		loader:  session,
+		remote:  remote,
+		pending: make(chan struct{}, maxPending),
+	}, nil
 }
 
-func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
-	var definitions []Tool
-	if err := c.caller.Call(ctx, MethodListTools, nil, &definitions); err != nil {
-		return nil, c.mapCallError(ctx, err)
+func (client *Client) ListTools(ctx context.Context) ([]Tool, error) {
+	out, err := client.remote.ListTools(ctx)
+	if err != nil {
+		return nil, client.mapError(ctx, err)
 	}
-	if err := ValidateTools(definitions); err != nil {
-		return nil, &CallError{Code: CodeHostValidation, Message: "invalid Tool definitions", cause: err}
+	if err = ValidateTools(out); err != nil {
+		return nil, invalidResponse("invalid Tool definitions")
 	}
-	return cloneTools(definitions), nil
+	return out, nil
 }
 
-func (c *Client) Call(ctx context.Context, request CallRequest) (json.RawMessage, error) {
+func (client *Client) Call(ctx context.Context, request CallRequest) (json.RawMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, client.mapError(ctx, err)
+	}
 	if err := ValidateCall(request); err != nil {
-		return nil, &CallError{Code: CodeHostValidation, Message: "invalid Tool call", cause: err}
+		return nil, invalidResponse("invalid Tool call")
 	}
-	request.Arguments = append(json.RawMessage(nil), request.Arguments...)
-	var response CallResponse
-	if err := c.caller.Call(ctx, MethodCall, request, &response); err != nil {
-		return nil, c.mapCallError(ctx, err)
+	select {
+	case client.pending <- struct{}{}:
+		defer func() { <-client.pending }()
+	default:
+		return nil, &CallError{Code: CodeBackpressure, Message: "Tool process is at capacity"}
+	}
+	response, err := client.remote.CallTool(ctx, request)
+	if err != nil {
+		return nil, client.mapError(ctx, err)
 	}
 	if response.Error != nil {
-		if len(response.Result) != 0 || response.Error.Code != CodeToolError || len(response.Error.Message) > MaxErrorMessage {
-			return nil, &CallError{Code: CodeHostValidation, Message: "invalid Tool error response"}
+		if len(response.Result) != 0 || len(response.Error.Message) > MaxErrorMessage {
+			return nil, invalidResponse("invalid error response")
 		}
-		return nil, &CallError{Code: CodeToolError, Message: boundedMessage(response.Error.Message, "tool execution failed")}
+		switch response.Error.Code {
+		case CodeToolError, CodeHostValidation, CodeTransport, CodeBackpressure, CodeCancelled, CodeTimeout:
+		default:
+			return nil, invalidResponse("unknown error category")
+		}
+		if response.Error.Code == CodeCancelled {
+			response.Error = contract.NewCallError(response.Error.Code, response.Error.Message, context.Canceled)
+		}
+		if response.Error.Code == CodeTimeout {
+			response.Error = contract.NewCallError(response.Error.Code, response.Error.Message, context.DeadlineExceeded)
+		}
+		return nil, response.Error
 	}
-	if err := validateJSONDocument(response.Result, MaxResultBytes, "result"); err != nil {
-		return nil, &CallError{Code: CodeHostValidation, Message: "invalid Tool result", cause: err}
+	if validateJSONDocument(response.Result, MaxResultBytes, "result") != nil {
+		return nil, invalidResponse("invalid result")
 	}
-	return append(json.RawMessage(nil), response.Result...), nil
+	return response.Result, nil
 }
 
-func (c *Client) mapCallError(ctx context.Context, err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-		return &CallError{Code: CodeCancelled, Message: "Tool call cancelled", cause: context.Canceled}
+func (client *Client) mapError(ctx context.Context, err error) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return contract.NewCallError(CodeCancelled, "Tool call cancelled", context.Canceled)
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return &CallError{Code: CodeTimeout, Message: "Tool call timed out", cause: context.DeadlineExceeded}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return contract.NewCallError(CodeTimeout, "Tool call timed out", context.DeadlineExceeded)
 	}
-	if errors.Is(err, gordisprocess.ErrBackpressure) {
-		return &CallError{Code: CodeBackpressure, Message: "Tool process is at capacity", cause: err}
+	if client.loader != nil && client.loader.Exited() {
+		return &CallError{Code: CodeProcessExit, Message: "Tool process exited"}
 	}
-	var rpc *gordisprocess.RPCError
-	if errors.As(err, &rpc) {
-		switch rpc.Code {
-		case CodeCancelled:
-			return &CallError{Code: CodeCancelled, Message: "Tool call cancelled", cause: context.Canceled}
-		case CodeTimeout:
-			return &CallError{Code: CodeTimeout, Message: "Tool call timed out", cause: context.DeadlineExceeded}
-		case CodeBackpressure:
-			return &CallError{Code: CodeBackpressure, Message: "Tool process is at capacity", cause: err}
-		case CodeHostValidation:
-			return &CallError{Code: CodeHostValidation, Message: "Tool process returned an invalid response", cause: err}
-		}
+	if errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled {
+		return contract.NewCallError(CodeCancelled, "Tool call cancelled", context.Canceled)
 	}
-	if provider, ok := c.caller.(diagnosticsProvider); ok && errors.Is(err, gordisprocess.ErrClosed) {
-		deadline := time.Now().Add(50 * time.Millisecond)
-		for {
-			diagnostics := provider.Snapshot()
-			if diagnostics.Reaped {
-				if strings.Contains(diagnostics.Error, "exited") || strings.Contains(diagnostics.Error, "read: EOF") {
-					return &CallError{Code: CodeProcessExit, Message: "Tool process exited", cause: err}
-				}
-				break
-			}
-			if time.Now().After(deadline) {
-				break
-			}
-			time.Sleep(time.Millisecond)
-		}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return contract.NewCallError(CodeTimeout, "Tool call timed out", context.DeadlineExceeded)
 	}
-	return &CallError{Code: CodeTransport, Message: "Tool process transport failed", cause: err}
-}
-
-func cloneTools(definitions []Tool) []Tool {
-	cloned := make([]Tool, len(definitions))
-	for i, definition := range definitions {
-		cloned[i] = definition
-		cloned[i].Parameters = append(json.RawMessage(nil), definition.Parameters...)
-		cloned[i].Output = append(json.RawMessage(nil), definition.Output...)
+	if status.Code(err) == codes.DeadlineExceeded {
+		return contract.NewCallError(CodeTimeout, "Tool call timed out", context.DeadlineExceeded)
 	}
-	return cloned
+	if status.Code(err) == codes.ResourceExhausted {
+		return &CallError{Code: CodeHostValidation, Message: "oversized message"}
+	}
+	return &CallError{Code: CodeTransport, Message: "Tool process unavailable"}
 }

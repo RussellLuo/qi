@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -16,35 +15,35 @@ import (
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
 
-func adapterOptions() Options {
-	return Options{Command: childExecutable, Env: []string{"GORACE=atexit_sleep_ms=0"}, StartupTimeout: 5 * time.Second, ExitGrace: 3 * time.Second}
+func loaderOptions() fixtureOptions {
+	return fixtureOptions{Command: childExecutable, Env: []string{"GORACE=atexit_sleep_ms=0"}, StartupTimeout: 5 * time.Second, ExitGrace: 3 * time.Second}
 }
 
-type adapterHost struct {
+type loaderHost struct {
 	host     *gordis.Host
 	runtime  *tools.Runtime
 	instance *gordis.Instance
-	plugin   *adapterPlugin
+	plugin   *fixtureLoader
 	err      error
 }
 
-func mountAdapter(t *testing.T, options Options, raw json.RawMessage, extra ...gordis.Plugin) *adapterHost {
+func mountLoader(t *testing.T, options fixtureOptions, raw json.RawMessage, extra ...gordis.Plugin) *loaderHost {
 	t.Helper()
-	prototype, err := NewAdapter(new(fixture.Plugin), options)
+	prototype, err := newFixtureLoader(t, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := prototype.(*adapterPlugin)
+	p := prototype.(*fixtureLoader)
 	newInstance := p.spec.New
-	a := &adapterHost{runtime: tools.NewRuntime()}
-	p.spec.New = func() gordis.Plugin { a.plugin = newInstance().(*adapterPlugin); return a.plugin }
-	plugins := append([]gordis.Plugin{&runtimeProvider{runtime: a.runtime}, p}, extra...)
+	a := &loaderHost{runtime: tools.NewRuntime()}
+	p.spec.New = func() gordis.Plugin { a.plugin = newInstance().(*fixtureLoader); return a.plugin }
+	plugins := append([]gordis.Plugin{&hostRuntime{r: a.runtime}, p}, extra...)
 	a.host, err = gordis.NewHost(plugins...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.host.Shutdown(context.Background()); a.runtime.Close() })
-	if _, err := a.host.Env().MountReady(context.Background(), gordis.InstanceSpec{ID: "runtime", Plugin: providerID}); err != nil {
+	if _, err := a.host.Env().MountReady(context.Background(), gordis.InstanceSpec{ID: "runtime", Plugin: "runtime"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, plugin := range extra {
@@ -76,10 +75,10 @@ func fixtureConfig(mode, directory, prefix string) json.RawMessage {
 	return raw
 }
 
-func TestAdapterProcessAndIndependentConfigurations(t *testing.T) {
+func TestLoaderProcessAndIndependentConfigurations(t *testing.T) {
 	for _, prefix := range []string{"Hello, ", "Welcome, "} {
 		directory := t.TempDir()
-		a := mountAdapter(t, adapterOptions(), fixtureConfig("", directory, prefix))
+		a := mountLoader(t, loaderOptions(), fixtureConfig("", directory, prefix))
 		if a.err != nil {
 			t.Fatal(a.err)
 		}
@@ -108,10 +107,10 @@ func TestAdapterProcessAndIndependentConfigurations(t *testing.T) {
 	}
 }
 
-func TestAdapterFailureBeforeVisibility(t *testing.T) {
+func TestLoaderFailureBeforeVisibility(t *testing.T) {
 	for _, mode := range []string{"validate", "activate", "schema", "deferred", "unknown-config", "deployment-config", "package", "version", "missing-executable"} {
 		t.Run(mode, func(t *testing.T) {
-			o := adapterOptions()
+			o := loaderOptions()
 			raw := fixtureConfig(mode, t.TempDir(), "Hello, ")
 			switch mode {
 			case "unknown-config":
@@ -119,13 +118,13 @@ func TestAdapterFailureBeforeVisibility(t *testing.T) {
 			case "deployment-config":
 				raw = json.RawMessage(`{"Command":"/bin/false","Args":[],"Env":[]}`)
 			case "package":
-				o.PackageID = "wrong.package"
+				o.ID = "wrong.package"
 			case "version":
 				o.Version = "v9"
 			case "missing-executable":
 				o.Command = filepath.Join(t.TempDir(), "missing")
 			}
-			a := mountAdapter(t, o, raw)
+			a := mountLoader(t, o, raw)
 			if a.err == nil {
 				t.Fatal("invalid activation succeeded")
 			}
@@ -134,7 +133,7 @@ func TestAdapterFailureBeforeVisibility(t *testing.T) {
 			}
 			if a.plugin.client != nil {
 				d := a.plugin.client.Snapshot()
-				if !d.Reaped || !d.IOComplete || !d.HandlersComplete {
+				if d.PID > 0 && !d.Reaped {
 					t.Fatalf("startup leaked child: %+v", d)
 				}
 			}
@@ -158,9 +157,9 @@ func (*conflictingTool) Activate(_ context.Context, scope *gordis.Scope) error {
 	return err
 }
 
-func TestAdapterToolConflictRollsBackBatchAndProcess(t *testing.T) {
+func TestLoaderToolConflictRollsBackBatchAndProcess(t *testing.T) {
 	directory := t.TempDir()
-	a := mountAdapter(t, adapterOptions(), fixtureConfig("batch", directory, ""), new(conflictingTool))
+	a := mountLoader(t, loaderOptions(), fixtureConfig("batch", directory, ""), new(conflictingTool))
 	if a.err == nil {
 		t.Fatal("Tool collision accepted")
 	}
@@ -176,11 +175,11 @@ func TestAdapterToolConflictRollsBackBatchAndProcess(t *testing.T) {
 	waitMarker(t, directory, "cleaned")
 }
 
-func TestAdapterIdentityOverride(t *testing.T) {
-	o := adapterOptions()
-	o.PackageID, o.Version = "fixture.override", "v2"
+func TestLoaderIdentityOverride(t *testing.T) {
+	o := loaderOptions()
+	o.ID, o.Version = "fixture.override", "v2"
 	o.Env = append(o.Env, "QI_PT01_OVERRIDE=1")
-	a := mountAdapter(t, o, fixtureConfig("", "", "Hello, "))
+	a := mountLoader(t, o, fixtureConfig("", "", "Hello, "))
 	if a.err != nil {
 		t.Fatal(a.err)
 	}
@@ -194,11 +193,11 @@ func TestAdapterIdentityOverride(t *testing.T) {
 	assertClean(t, a.plugin.client)
 }
 
-func TestAdapterDefaultsToEmptyEnvironment(t *testing.T) {
+func TestLoaderDefaultsToEmptyEnvironment(t *testing.T) {
 	t.Setenv("QI_PT02_AMBIENT", "host-only")
-	o := adapterOptions()
+	o := loaderOptions()
 	o.Env = nil
-	a := mountAdapter(t, o, fixtureConfig("empty-environment", "", ""))
+	a := mountLoader(t, o, fixtureConfig("empty-environment", "", ""))
 	if a.err != nil {
 		t.Fatal(a.err)
 	}
@@ -208,8 +207,8 @@ func TestAdapterDefaultsToEmptyEnvironment(t *testing.T) {
 	assertClean(t, a.plugin.client)
 }
 
-func TestAdapterPropagatesCleanupFailure(t *testing.T) {
-	a := mountAdapter(t, adapterOptions(), fixtureConfig("cleanup-error", "", ""))
+func TestLoaderPropagatesCleanupFailure(t *testing.T) {
+	a := mountLoader(t, loaderOptions(), fixtureConfig("cleanup-error", "", ""))
 	if a.err != nil {
 		t.Fatal(a.err)
 	}
@@ -217,12 +216,12 @@ func TestAdapterPropagatesCleanupFailure(t *testing.T) {
 		t.Fatal("remote cleanup error hidden")
 	}
 	d := a.plugin.client.Snapshot()
-	if !d.Reaped || !d.CleanupKnown || d.Cleanup.Complete || d.Cleanup.Error == "" {
+	if !d.Reaped || d.Cleanup == nil || d.Cleanup.CleanupComplete || len(d.Cleanup.Errors) == 0 {
 		t.Fatalf("false cleanup success: %+v", d)
 	}
 }
 
-func TestAdapterFailureCategories(t *testing.T) {
+func TestLoaderFailureCategories(t *testing.T) {
 	for _, tc := range []struct {
 		mode, code string
 		abort      bool
@@ -231,7 +230,7 @@ func TestAdapterFailureCategories(t *testing.T) {
 		{"timeout", "timeout", false}, {"meta", CodeHostValidation, false}, {"panic", CodeTransport, false},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
-			a := mountAdapter(t, adapterOptions(), fixtureConfig(tc.mode, "", ""))
+			a := mountLoader(t, loaderOptions(), fixtureConfig(tc.mode, "", ""))
 			if a.err != nil {
 				t.Fatal(a.err)
 			}
@@ -249,9 +248,9 @@ func TestAdapterFailureCategories(t *testing.T) {
 	}
 }
 
-func TestAdapterCancelledRemoteWorkerDrains(t *testing.T) {
+func TestLoaderCancelledRemoteWorkerDrains(t *testing.T) {
 	directory := t.TempDir()
-	a := mountAdapter(t, adapterOptions(), fixtureConfig("waitstop", directory, ""))
+	a := mountLoader(t, loaderOptions(), fixtureConfig("waitstop", directory, ""))
 	if a.err != nil {
 		t.Fatal(a.err)
 	}
@@ -279,8 +278,8 @@ func TestAdapterCancelledRemoteWorkerDrains(t *testing.T) {
 	}
 }
 
-func TestAdapterWithdrawsBeforeLeaseDrainAndClose(t *testing.T) {
-	a := mountAdapter(t, adapterOptions(), fixtureConfig("", "", ""))
+func TestLoaderWithdrawsBeforeLeaseDrainAndClose(t *testing.T) {
+	a := mountLoader(t, loaderOptions(), fixtureConfig("", "", ""))
 	if a.err != nil {
 		t.Fatal(a.err)
 	}
@@ -318,8 +317,8 @@ func TestAdapterWithdrawsBeforeLeaseDrainAndClose(t *testing.T) {
 	assertClean(t, a.plugin.client)
 }
 
-func TestAdapterWatchesBackgroundFailure(t *testing.T) {
-	a := mountAdapter(t, adapterOptions(), fixtureConfig("background", "", ""))
+func TestLoaderWatchesBackgroundFailure(t *testing.T) {
+	a := mountLoader(t, loaderOptions(), fixtureConfig("background", "", ""))
 	if a.err != nil {
 		t.Fatal(a.err)
 	}
@@ -343,52 +342,38 @@ func TestAdapterWatchesBackgroundFailure(t *testing.T) {
 	t.Fatal("AfterReady did not report process failure")
 }
 
-func TestAdapterFactoryIsStaticAndDetached(t *testing.T) {
-	spec := new(fixture.Plugin).Spec()
-	spec.New = func() gordis.Plugin { panic("factory called business New") }
+func TestLoaderConfigurationAndFactory(t *testing.T) {
 	args, env := []string{"arg"}, []string{"X=original"}
-	prototype, err := NewAdapter(&specPlugin{spec}, Options{Command: "/does/not/exist", Args: args, Env: env})
-	if err != nil {
-		t.Fatal(err)
-	}
+	prototype := HostExtension("test/loader", HostOptions{Args: args, Env: env}).Registrations[0].Plugin
 	args[0], env[0] = "changed", "changed"
-	first, second := prototype.Spec().New().(*adapterPlugin), prototype.Spec().New().(*adapterPlugin)
-	if first == second || first.Spec().ID != spec.ID || !reflect.DeepEqual(first.Spec().Requires, spec.Requires) || len(first.Spec().Provides) != 0 {
-		t.Fatal("incorrect Adapter Spec/New")
-	}
-	if first.options.Args[0] != "arg" || first.options.Env[0] != "X=original" {
-		t.Fatal("Options alias caller")
+	first := prototype.Spec().New().(*loaderPlugin)
+	second := prototype.Spec().New().(*loaderPlugin)
+	if first == second || first.options.Args[0] != "arg" || first.options.Env[0] != "X=original" {
+		t.Fatal("loader factory shares caller options")
 	}
 	first.options.Args[0] = "mutated"
-	firstSpec := first.Spec()
-	firstSpec.Requires[0] = gordis.NewKey[string]("wrong").Spec()
-	if second.options.Args[0] != "arg" || second.Spec().Requires[0] != tools.RuntimeKey.Spec() {
-		t.Fatal("instances share mutable declarations/options")
+	if second.options.Args[0] != "arg" {
+		t.Fatal("loader instances share options")
 	}
-	raw := []byte(`{"Command":"business","prefix":"one"}`)
+	for _, raw := range []string{
+		`null`, `[]`, `{}`, `{"command":" "}`, `{"command":"missing","unknown":true}`,
+		`{"command":"missing","identity":{}}`, `{"command":"missing","identity":{"id":"bad id","version":"dev"}}`, `{"manifest":"old"}`,
+		`{"command":"missing","config":null}`, `{"command":"missing","config":[]}`,
+	} {
+		if err := json.Unmarshal([]byte(raw), first); err == nil {
+			t.Fatalf("accepted invalid deployment configuration: %s", raw)
+		}
+	}
+	// Decoding deployment config does not read the artifact or construct business code.
+	raw := []byte(`{"command":"missing","config":{"prefix":"Hello"}}`)
 	if err := json.Unmarshal(raw, first); err != nil {
 		t.Fatal(err)
 	}
 	raw[2] = 'x'
-	if string(first.config) != `{"Command":"business","prefix":"one"}` || len(second.config) != 0 || first.options.Command != "/does/not/exist" {
-		t.Fatal("business config aliases data or overwrites Options")
+	if string(first.config) != `{"prefix":"Hello"}` || second.command != "" || second.config != nil {
+		t.Fatal("loader configuration aliases caller or another instance")
 	}
-	for _, raw := range []string{`null`, `[]`, `123`, `{} {}`} {
-		if err := json.Unmarshal([]byte(raw), first); err == nil {
-			t.Fatalf("accepted config %s", raw)
-		}
-	}
-	for _, options := range []Options{{}, {Command: "greet", PackageID: "bad/id"}, {Command: "greet", Version: "bad/version"}} {
-		if _, err := NewAdapter(new(fixture.Plugin), options); err == nil {
-			t.Fatal("accepted invalid Options")
-		}
-	}
-	if _, err := NewAdapter(nil, adapterOptions()); err == nil {
-		t.Fatal("accepted nil Plugin")
-	}
-	path, err := executablePath("greet")
-	executable, _ := os.Executable()
-	if err != nil || path != filepath.Join(filepath.Dir(executable), "greet") || !filepath.IsAbs(path) {
-		t.Fatal(path, err)
+	if err := first.Validate(); err == nil {
+		t.Fatal("accepted missing artifact")
 	}
 }

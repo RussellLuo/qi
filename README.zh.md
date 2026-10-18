@@ -12,6 +12,7 @@ Qi（气）是一个最小化、插件化、可扩展的 Agent harness，将模�
 | --- | --- |
 | [kernel](kernel/README.zh.md) | 核心运行时、公开 API、Profile 启动与 `qi-build` 构建工具。 |
 | [builtin](builtin/README.zh.md) | 内建命令行应用、模型接入、文件工具、会话持久化与完整示例。 |
+| [gordis-rpc](gordis-rpc/README.zh.md) | 独立的 Gordis 进程 RPC 模块，暂在此孵化，成熟后拆为独立仓库。 |
 
 builtin 基于 kernel 的公开 API 实现；kernel 不依赖 builtin。
 

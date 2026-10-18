@@ -1,10 +1,14 @@
 go 1.27
 
 use (
-	./kernel
 	./builtin
+	./gordis-rpc
+	./kernel
 )
 
 // Unpublished development requirements; local workspace only.
 replace github.com/RussellLuo/qi/kernel v0.0.0 => ./kernel
+
 replace github.com/RussellLuo/qi/builtin v0.0.0 => ./builtin
+
+replace github.com/RussellLuo/gordis-rpc v0.0.0 => ./gordis-rpc

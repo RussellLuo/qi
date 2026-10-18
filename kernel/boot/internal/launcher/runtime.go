@@ -209,6 +209,6 @@ type StartRequest struct {
 // Policy supplies optional pure planning and bootstrap strategies. Zero Policy
 // uses the explicit registrations and the basic Host lifecycle.
 type Policy struct {
-	Plan  func([]appregistration.PluginRegistration, appprofile.ResolvedProfile, appprofile.BundleCatalog) (*appregistration.Candidate, error)
+	Plan  func([]appregistration.PluginRegistration, appprofile.Profile, appprofile.BundleCatalog) (*appregistration.Candidate, error)
 	Start func(context.Context, StartRequest) (*hostruntime.Runtime, error)
 }

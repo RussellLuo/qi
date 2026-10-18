@@ -1,4 +1,4 @@
-# Build with the tool-process Extension; place greet beside qi.
+# The default builtin bundle includes the process loader; deploy program + Profile.
 apiVersion: qi.profile/v1alpha1
 bundles: [base]
 instances:
@@ -12,7 +12,7 @@ instances:
         - id: greet-model
           model: your-model
   - id: greet
-    plugin: example/tool-process
+    plugin: ./packages/greet/greet
   - id: headless
     plugin: qi/cli/headless
     config:

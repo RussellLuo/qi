@@ -1,15 +1,11 @@
-// Package greettool demonstrates an ordinary Tool Plugin running in a child.
-package greettool
+// Package greet demonstrates the ordinary Qi tool author model.
+package greet
 
 import (
 	"context"
 	"encoding/json"
 
 	"github.com/RussellLuo/gordis"
-	toolprocess "github.com/RussellLuo/qi/builtin/tools/process"
-	"github.com/RussellLuo/qi/kernel/boot/application"
-	"github.com/RussellLuo/qi/kernel/boot/profile"
-	"github.com/RussellLuo/qi/kernel/boot/registration"
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
 
@@ -54,24 +50,4 @@ func (*Plugin) Activate(_ context.Context, scope *gordis.Scope) error {
 		}),
 	})
 	return err
-}
-
-// Extension publishes the plugin type. The Profile selects its instance.
-func Extension() application.Extension {
-	registered, err := toolprocess.Registration(
-		new(Plugin),
-		profile.PluginDescriptor{
-			Title:         "Process greeting tool",
-			ConfigSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-			UpdatePolicy:  profile.UpdateImmutable,
-			Compatibility: profile.Compatibility{HostAPI: profile.HostAPIVersion},
-		},
-		toolprocess.Options{Command: "greet"},
-	)
-	if err != nil {
-		// Invalid static declaration; activation returns runtime errors.
-		panic(err)
-	}
-
-	return application.Extension{Registrations: []registration.PluginRegistration{registered}}
 }

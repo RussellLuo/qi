@@ -9,6 +9,7 @@ import (
 	openaiplugin "github.com/RussellLuo/qi/builtin/llm/openai/plugin"
 	jsonlplugin "github.com/RussellLuo/qi/builtin/session/jsonl/plugin"
 	fsplugin "github.com/RussellLuo/qi/builtin/tools/fs/plugin"
+	toolprocess "github.com/RussellLuo/qi/builtin/tools/process"
 	"github.com/RussellLuo/qi/kernel/boot/application"
 	"github.com/RussellLuo/qi/kernel/boot/profile"
 	agentplugin "github.com/RussellLuo/qi/kernel/core/agentloop/plugin"
@@ -31,7 +32,7 @@ func TestBuiltinRegistrationsAndBaseBundle(t *testing.T) {
 			t.Fatal("invalid headless invocation contract", reg)
 		}
 	}
-	wantIDs := []string{"gordis/events", "qi/llm", "qi/prompt", "qi/tools", "qi/agent-loop", "qi/session", "qi/session/persistence-jsonl", "qi/cli/headless", "qi/llm/openai-compatible", "qi/tools/fs"}
+	wantIDs := []string{"gordis/events", "qi/llm", "qi/prompt", "qi/tools", "qi/agent-loop", "qi/session", "qi/session/persistence-jsonl", "qi/cli/headless", "qi/llm/openai-compatible", "qi/tools/fs", "qi/tools/process"}
 	if !reflect.DeepEqual(ids, wantIDs) {
 		t.Fatalf("registrations = %v, want %v", ids, wantIDs)
 	}
@@ -69,7 +70,7 @@ func TestCapabilityFactoriesAreDetachedAndRejectDuplicates(t *testing.T) {
 	for _, factory := range []func() application.Extension{
 		agentplugin.Extension, llmplugin.Extension, promptplugin.Extension, toolsplugin.Extension,
 		memoryplugin.Extension, openaiplugin.Extension, jsonlplugin.Extension, headless.Extension,
-		fsplugin.Extension,
+		fsplugin.Extension, toolprocess.Extension,
 	} {
 		first, second := factory(), factory()
 		if len(first.Registrations) != 1 || len(first.Bundles) != 0 {

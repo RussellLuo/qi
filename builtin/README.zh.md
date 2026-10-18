@@ -11,6 +11,7 @@ Qi 的内建命令行应用与能力集合，提供模型接入、文件读写�
 | [qi/llm/openai-compatible](llm/openai/README.zh.md) | 接入 OpenAI-compatible 模型。 |
 | [qi/session/persistence-jsonl](session/jsonl/README.zh.md) | 保存和恢复 JSONL 会话历史。 |
 | [qi/tools/fs](tools/fs/README.zh.md) | 读取和写入文件。 |
+| [qi/tools/process](tools/process/README.zh.md) | 加载 Profile 指定的工具程序，默认 Bundle 已包含。 |
 | [qi/cli/headless](cli/headless/README.zh.md) | 执行命令行任务，输出文本或 JSON 结果。 |
 
 ## 开始使用

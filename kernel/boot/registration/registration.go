@@ -18,6 +18,10 @@ type PluginRegistration struct {
 	Invocation     launch.Parser
 	Completes      bool
 
+	// ResolvePath purely wraps business config for a local executable.
+	// Only a ProfileVisible registration may handle paths; it must not execute them.
+	ResolvePath func(command string, businessConfig map[string]any) (map[string]any, error)
+
 	// ValidateCandidate is pure capability admission, applied only when this
 	// type is declared. It must not activate or modify the candidate.
 	ValidateCandidate func(profile.Profile) error

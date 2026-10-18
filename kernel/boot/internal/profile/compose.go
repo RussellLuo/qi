@@ -21,6 +21,8 @@ type ComposedInstance struct {
 }
 
 type ResolvedProfile struct {
+	// BaseDir is the absolute selected Profile directory, outside source digests.
+	BaseDir      string
 	Source       ProfileSource
 	Profile      Profile
 	Declarations []ComposedInstance

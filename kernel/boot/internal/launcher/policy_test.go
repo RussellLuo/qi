@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -174,5 +176,56 @@ func TestBuiltinBaseRequiresExplicitSelection(t *testing.T) {
 		if len(candidate.Mounts) != test.count || candidate.ConsumerID != "" || candidate.CompletionOwnerID != "" {
 			t.Fatal("implicit selection", candidate)
 		}
+	}
+}
+
+func TestWorkPreparesOnceForAssemblyAndCustomPlan(t *testing.T) {
+	for _, mutate := range []bool{false, true} {
+		t.Run(fmt.Sprint(mutate), func(t *testing.T) {
+			var calls, disposed atomic.Int32
+			wraps, plans := 0, 0
+			selected := []registration.PluginRegistration{{Plugin: &consumer{&calls, &disposed}, ProfileVisible: true,
+				ResolvePath: func(command string, business map[string]any) (map[string]any, error) {
+					wraps++
+					return map[string]any{"command": command, "config": business}, nil
+				},
+			}}
+			resolved, err := profile.Compose(profile.ProfileSource{Instances: []profile.InstanceSpec{{ID: "tool", Plugin: "./missing"}}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved.BaseDir = t.TempDir()
+			var diagnostics bytes.Buffer
+			code, cleanup := launchcontract.Work(context.Background(), func(int) {}, launchcontract.Options{
+				Registrations: selected,
+				LoadSource:    func() (profile.ResolvedProfile, error) { return resolved, nil },
+				Input:         launchcontract.Input{Stderr: &diagnostics, Stdout: &bytes.Buffer{}},
+				Assemble: func(p profile.Profile) ([]registration.PluginRegistration, launchcontract.Policy, launchcontract.Hooks, error) {
+					if p.Instances[0].Plugin != "test.consumer" {
+						t.Fatal(p)
+					}
+					// Mutating an assembly argument must not mutate the prepared plan.
+					p.Instances[0].Config["command"] = "changed"
+					bound := append([]registration.PluginRegistration(nil), selected...)
+					if mutate {
+						bound[0].ResolvePath = nil
+					}
+					return bound, launchcontract.Policy{Plan: func(_ []registration.PluginRegistration, p profile.Profile, _ profile.BundleCatalog) (*registration.Candidate, error) {
+						plans++
+						if p.Instances[0].Plugin != "test.consumer" || p.Instances[0].Config["command"] != filepath.Join(resolved.BaseDir, "missing") {
+							t.Fatal(p)
+						}
+						return nil, errors.New("custom plan reached")
+					}}, launchcontract.Hooks{}, nil
+				},
+			})
+			expectedPlans := 1
+			if mutate {
+				expectedPlans = 0
+			}
+			if code != 1 || cleanup != nil || plans != expectedPlans || wraps != 1 {
+				t.Fatal(code, cleanup, plans, wraps, diagnostics.String())
+			}
+		})
 	}
 }

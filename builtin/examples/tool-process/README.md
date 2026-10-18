@@ -1,14 +1,14 @@
-# A Tool Plugin in a separate process
+# Tools in a separate process
 
 English | [中文](README.zh.md)
 
-Run the same `greet(name)` tool as [tool-plugin](../tool-plugin/README.md) in a child process. It takes a required `name` argument and returns the JSON string `"Hello, {name}!"`.
+Run the `greet` tool from [tool-plugin](../tool-plugin/README.md) in a separate process. The host loads the tool program through a Profile; adding another tool program with the same contract requires no host rebuild.
 
 The model uses the builtin OpenAI-compatible plugin. You need Go 1.27 and a model service supporting tool calls, with its credentials.
 
 ## Build and run
 
-Run these commands at the repository root. qi-build generates the host entrypoint; build the `greet` child separately:
+Run these commands at the repository root to build the host and tool program separately. The default host includes the process loader:
 
 ```sh
 mkdir -p dist
@@ -18,9 +18,10 @@ GOWORK=off go -C kernel build -o ../dist/qi-build ./cmd/qi-build
   --output ./dist/tool-process/qi \
   --replace github.com/RussellLuo/qi/kernel=./kernel \
   --replace github.com/RussellLuo/qi/builtin=./builtin \
-  --with github.com/RussellLuo/qi/builtin/examples/tool-process
+  --replace github.com/RussellLuo/gordis-rpc=./gordis-rpc
 
-go -C builtin build -o ../dist/tool-process/greet ./examples/tool-process/cmd/greet
+mkdir -p dist/tool-process/packages/greet
+go -C builtin build -o ../dist/tool-process/packages/greet/greet ./examples/tool-process/cmd/greet
 cp builtin/examples/tool-process/profile.yaml dist/tool-process/profile.yaml
 ./dist/tool-process/qi --profile dist/tool-process/profile.yaml -- --help
 ```
@@ -28,8 +29,6 @@ cp builtin/examples/tool-process/profile.yaml dist/tool-process/profile.yaml
 The help command does not activate plugins or call a model and needs no model credentials.
 
 See [rebuilding](../../../kernel/docs/building.md#rebuild) when building the same output again.
-
-Keep `qi`, `greet` and `profile.yaml` in one deployment directory. Go is not needed at runtime.
 
 Follow [model setup](../../llm/openai/README.md#model-config) to edit `dist/tool-process/profile.yaml`, setting the vendor model name, endpoint and any required credentials. Keep the product model ID `greet-model`.
 
@@ -40,19 +39,21 @@ Explicitly ask the model to call the tool:
   'Please call the greet tool to say hello to Qi.'
 ```
 
-The model supplies `{"name":"Qi"}`, the child returns `"Hello, Qi!"`, and the model replies. A plain greeting may produce a response without a tool call.
+The model passes `{"name":"Qi"}` and the child program returns the JSON string `"Hello, Qi!"`. The model then answers. With only `hello` as input, the model may reply directly without calling a tool.
+
+You can move the entire `dist/tool-process/` directory; Go is not needed at runtime.
 
 ## How it works
 
-The implementation has two parts:
+- [plugin.go](plugin.go) uses the same ordinary Plugin model as the in-process example, registering `greet` through `runtime.Bind(scope).Register`.
+- [cmd/greet/main.go](cmd/greet/main.go) calls `process.Main(new(greet.Plugin))` to run the Plugin as a separate program.
+- The [Profile](profile.yaml) selects the tool by program path, with business configuration directly under `config`:
 
-- [plugin.go](plugin.go) defines an ordinary Tool Plugin. `Spec` declares the Tool Runtime dependency; `Activate` registers `greet` through `runtime.Bind(scope).Register`, just as in the in-process example.
-- `Extension` uses `toolprocess.Registration` to wrap that Plugin in a process adapter. The [Profile](profile.yaml) selects it using `example/tool-process`.
-- `toolprocess.Options{Command: "greet"}` locates the child beside the `qi` executable, independent of the working directory or PATH. You can move the deployment directory as a whole.
-- [cmd/greet/main.go](cmd/greet/main.go) passes the Plugin and standard IO to `toolprocess.ServePlugin`, which runs it in the child process.
+```yaml
+- id: greet
+  plugin: ./packages/greet/greet
+```
 
-The child receives an empty environment by default; model credentials stay in the host. This adapter supports tools that require only Tool Runtime and return JSON values. Session cwd and Agent/Turn identity are not passed to the child.
+Relative paths resolve from the selected Profile file's directory, so they keep working from another working directory or after moving the delivery directory.
 
-This example belongs to the builtin Go module using Qi's public APIs.
-
-See the [building guide](https://github.com/RussellLuo/qi/tree/main/kernel/docs/building.md) for application builds and [Tool Runtime](https://github.com/RussellLuo/qi/tree/main/kernel/core/tools/README.md) for the tool contract.
+This example belongs to the builtin Go module using Qi's public APIs. See the [process package guide (Chinese)](../../tools/process/README.zh.md) for process contracts and assembly details.

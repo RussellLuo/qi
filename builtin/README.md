@@ -11,6 +11,7 @@ Qi's builtin command-line application and capability collection provide model ac
 | [qi/llm/openai-compatible](llm/openai/README.md) | Access OpenAI-compatible models. |
 | [qi/session/persistence-jsonl](session/jsonl/README.md) | Save and resume JSONL Session histories. |
 | [qi/tools/fs](tools/fs/README.md) | Read and write files. |
+| qi/tools/process | Load tool programs configured in a Profile; included in the default Bundle. |
 | [qi/cli/headless](cli/headless/README.md) | Run command-line tasks and output text or JSON results. |
 
 ## Start here

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 
 	appprofile "github.com/RussellLuo/qi/kernel/boot/internal/profile"
@@ -119,10 +120,16 @@ func (c *Catalog) Snapshot() []Descriptor {
 
 // LoadWith uses the caller-selected catalog without path lookup or fallback.
 func LoadWith(path string, catalog appprofile.BundleCatalog) (appprofile.ResolvedProfile, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return appprofile.ResolvedProfile{}, err
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return appprofile.ResolvedProfile{}, err
 	}
 
-	return appprofile.ResolveSource(raw, catalog)
+	resolved, err := appprofile.ResolveSource(raw, catalog)
+	resolved.BaseDir = filepath.Dir(path)
+	return resolved, err
 }

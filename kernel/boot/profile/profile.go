@@ -66,6 +66,11 @@ func Parse(raw []byte) (Profile, error) {
 	if profile.APIVersion != "" && profile.APIVersion != ProfileAPIVersion {
 		return Profile{}, fmt.Errorf("runtime profile: unsupported apiVersion %q; expected %s", profile.APIVersion, ProfileAPIVersion)
 	}
+	for _, instance := range profile.Instances {
+		if err := configcodec.CheckPlugin(instance.Plugin, "instance "+instance.ID); err != nil {
+			return Profile{}, err
+		}
+	}
 	return profile, nil
 }
 

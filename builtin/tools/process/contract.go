@@ -1,9 +1,10 @@
-// Package process runs ordinary JSON Tool plugins in trusted stdio processes.
-// It reuses ToolPackage/1 without transporting Go services or Scope objects.
-// Plugins must require only tools.RuntimeKey and provide no services. Choosing
-// this adapter declares that Tools depend only on arguments and business config,
-// without Session cwd or Agent/Turn identity. Successful results must contain
-// a JSON Value and one TextBlock with the same bytes; rich results are rejected.
+// Package process runs ordinary JSON Tool plugins in trusted go-plugin/gRPC processes.
+// Provider bridges tool descriptions and JSON calls; gordis-rpc owns process
+// sessions and lifecycle coordination. Plugins require tools.RuntimeKey and may
+// require explicitly declared Host imports, but provide no services themselves.
+// Tools depend on arguments and business config, without Session cwd or Agent/Turn
+// identity. Successful results contain a JSON Value and one matching TextBlock;
+// rich results are rejected.
 package process
 
 import (
@@ -12,16 +13,13 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+	"unicode/utf8"
+
+	"github.com/RussellLuo/qi/builtin/tools/process/internal/contract"
 )
 
 const (
-	ContractID      = "qi.tool-package/1"
-	HostAPIVersion  = 1
-	CapabilityTools = "tools"
-
-	MethodDescribe  = "toolpackage.describe"
-	MethodListTools = "toolpackage.list-tools"
-	MethodCall      = "toolpackage.call"
+	ContractID = contract.ID
 
 	MaxTools            = 32
 	MaxNameBytes        = 128
@@ -35,47 +33,18 @@ const (
 
 var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,127}$`)
-	versionPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 )
 
-type FailureMode string
+type FailureMode = contract.FailureMode
 
 const (
-	FailureResult FailureMode = "result"
-	FailureAbort  FailureMode = "abort"
+	FailureResult = contract.FailureResult
+	FailureAbort  = contract.FailureAbort
 )
 
-type Metadata struct {
-	ID           string   `json:"id"`
-	Version      string   `json:"version"`
-	Capabilities []string `json:"capabilities"`
-}
-
-type Tool struct {
-	Name          string          `json:"name"`
-	Description   string          `json:"description"`
-	Parameters    json.RawMessage `json:"parameters"`
-	Output        json.RawMessage `json:"output"`
-	TimeoutMillis int64           `json:"timeoutMillis"`
-	FailureMode   FailureMode     `json:"failureMode"`
-}
-
-type Invocation struct {
-	RequestID    string `json:"requestId"`
-	ToolCallID   string `json:"toolCallId"`
-	InvocationID string `json:"invocationId"`
-}
-
-type CallRequest struct {
-	Tool       string          `json:"tool"`
-	Arguments  json.RawMessage `json:"arguments"`
-	Invocation Invocation      `json:"invocation"`
-}
-
-type CallResponse struct {
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *CallError      `json:"error,omitempty"`
-}
+type Tool = contract.Tool
+type CallRequest = contract.CallRequest
+type CallResponse = contract.CallResponse
 
 const (
 	CodeToolError      = "tool_error"
@@ -87,38 +56,10 @@ const (
 	CodeTimeout        = "timeout"
 )
 
-type CallError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	cause   error
-}
-
-func (e *CallError) Error() string {
-	if e == nil {
-		return ""
-	}
-	return fmt.Sprintf("toolprocess: %s: %s", e.Code, e.Message)
-}
-
-func (e *CallError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.cause
-}
+type CallError = contract.CallError
 
 func NewToolError(message string) *CallError {
 	return &CallError{Code: CodeToolError, Message: boundedMessage(message, "tool execution failed")}
-}
-
-func ValidateMetadata(metadata Metadata) error {
-	if !identifierPattern.MatchString(metadata.ID) || !versionPattern.MatchString(metadata.Version) {
-		return errors.New("toolprocess: invalid package metadata identity")
-	}
-	if len(metadata.Capabilities) != 1 || metadata.Capabilities[0] != CapabilityTools {
-		return errors.New("toolprocess: unsupported package capabilities")
-	}
-	return nil
 }
 
 func ValidateTools(definitions []Tool) error {
@@ -155,8 +96,8 @@ func ValidateTools(definitions []Tool) error {
 
 func ValidateCall(request CallRequest) error {
 	if !identifierPattern.MatchString(request.Tool) ||
-		request.Invocation.RequestID == "" || request.Invocation.ToolCallID == "" || request.Invocation.InvocationID == "" {
-		return errors.New("toolprocess: call requires tool and invocation identities")
+		request.ToolCallID == "" {
+		return errors.New("toolprocess: call requires tool and tool-call identity")
 	}
 	return validateJSONDocument(request.Arguments, MaxArgumentsBytes, "arguments")
 }
@@ -173,7 +114,11 @@ func boundedMessage(message, fallback string) string {
 		message = fallback
 	}
 	if len(message) > MaxErrorMessage {
-		message = message[:MaxErrorMessage]
+		end := MaxErrorMessage
+		for end > 0 && !utf8.RuneStart(message[end]) {
+			end--
+		}
+		message = message[:end]
 	}
 	return message
 }

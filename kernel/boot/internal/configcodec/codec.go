@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -23,7 +24,7 @@ func CheckVersion(version, expected, layer string) error {
 }
 
 func CheckPlugin(plugin, path string) error {
-	if !ValidPluginID(plugin) {
+	if strings.ContainsRune(plugin, 0) || (!IsPluginPath(plugin) && !ValidPluginID(plugin)) {
 		return fmt.Errorf("%s.plugin: invalid identifier", path)
 	}
 	return nil
@@ -331,4 +332,9 @@ func copyFields(value map[string]any) map[string]any {
 		result[key] = item
 	}
 	return result
+}
+
+// IsPluginPath classifies explicit local paths before any cleaning.
+func IsPluginPath(value string) bool {
+	return strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") || filepath.IsAbs(value)
 }

@@ -530,3 +530,38 @@ func TestNilBundleCatalogDoesNotSelectOfficialLayers(t *testing.T) {
 		t.Fatal(code, err, out.String(), diagnostics.String())
 	}
 }
+
+func TestPathHelpDoesNotExecuteOrInspectProgram(t *testing.T) {
+	directory := t.TempDir()
+	marker := filepath.Join(directory, "marker")
+	program := filepath.Join(directory, "program")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	selected := filepath.Join(directory, "profile.yaml")
+	if err := os.WriteFile(selected, []byte("instances: [{id: external, plugin: ./program}]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	app := Application{Registrations: []registration.PluginRegistration{{Plugin: fixturePlugin{}, ProfileVisible: true, ResolvePath: func(command string, business map[string]any) (map[string]any, error) {
+		if command != program {
+			t.Fatalf("base dir: %s", command)
+		}
+		return map[string]any{"command": command, "config": business}, nil
+	}}}}
+	for _, missing := range []bool{false, true} {
+		if missing {
+			if err := os.Remove(program); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var out, diagnostics bytes.Buffer
+		code, err := Work(context.Background(), func(int) {}, []string{"--profile", selected, "--", "--help"}, launchcontract.Input{Stdin: noRead{}, Stdout: &out, Stderr: &diagnostics}, false, app)
+		if err != nil || code != 0 || out.Len() == 0 {
+			t.Fatal(code, err, diagnostics.String())
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatal("help executed program", err)
+		}
+	}
+}

@@ -139,18 +139,3 @@ func InvocationParser(registrations []PluginRegistration, profile appprofile.Pro
 
 	return parser, nil
 }
-
-// ValidateSourceTypes admits disabled declarations too, without runtime preflight.
-func ValidateSourceTypes(registrations []PluginRegistration, resolved appprofile.ResolvedProfile) error {
-	_, descriptors, err := ResolveRegistrations(registrations)
-	if err != nil {
-		return err
-	}
-
-	catalog, err := appprofile.NewCatalog(descriptors)
-	if err != nil {
-		return err
-	}
-
-	return catalog.ValidateDeclarations(resolved.Declarations)
-}

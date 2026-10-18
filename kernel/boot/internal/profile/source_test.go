@@ -40,7 +40,6 @@ func TestSourceStrictParsing(t *testing.T) {
 		"invalid id":                    "instances: [{id: a/b, plugin: qi/tools/echo}]",
 		"numeric id":                    "instances: [{id: 3, plugin: qi/tools/echo}]",
 		"plugin null":                   "instances: [{id: a, plugin: null}]",
-		"plugin leading slash":          "instances: [{id: a, plugin: /qi/llm}]",
 		"plugin trailing slash":         "instances: [{id: a, plugin: qi/llm/}]",
 		"plugin empty segment":          "instances: [{id: a, plugin: qi//llm}]",
 		"plugin parent segment":         "instances: [{id: a, plugin: qi/../llm}]",

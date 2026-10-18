@@ -39,7 +39,10 @@ func Work(ctx context.Context, begin func(int), options Options) (code int, clea
 	code = 1
 	defer func() { begin(code) }()
 
+	var resolved appprofile.ResolvedProfile
+	var execution appregistration.PreparedProfile
 	diagnose := func(err error) {
+		err = execution.Diagnose(err)
 		var output OutputError
 		if errors.As(err, &output) {
 			err = errors.Join(err, output.WriteError(options.Input.Stdout))
@@ -49,7 +52,6 @@ func Work(ctx context.Context, begin func(int), options Options) (code int, clea
 	}
 	registrations := options.Registrations
 	bundleCatalog := options.BundleCatalog
-	var resolved appprofile.ResolvedProfile
 	load := func() (appprofile.Profile, error) {
 		var err error
 		if options.LoadSource != nil {
@@ -63,10 +65,10 @@ func Work(ctx context.Context, begin func(int), options Options) (code int, clea
 		}
 
 		if err == nil {
-			err = appregistration.ValidateSourceTypes(registrations, resolved)
+			execution, err = appregistration.Prepare(registrations, resolved)
 		}
 
-		return resolved.Profile.Clone(), err
+		return execution.Profile.Clone(), err
 	}
 	var profile appprofile.Profile
 	loaded := false
@@ -142,18 +144,23 @@ func Work(ctx context.Context, begin func(int), options Options) (code int, clea
 	}
 
 	if options.Assemble != nil {
-		registrations, options.Policy, options.Hooks, err = options.Assemble(profile)
+		registrations, options.Policy, options.Hooks, err = options.Assemble(profile.Clone())
 		if err != nil {
 			diagnose(err)
 			return code, nil
 		}
 	}
 
+	if err = appregistration.ValidateAssembly(options.Registrations, registrations); err != nil {
+		diagnose(err)
+		return code, nil
+	}
+
 	// Plan and validate the execution graph without mounting services. The
 	// resulting candidate carries the frozen source into Host bootstrap.
 	var candidate *appregistration.Candidate
 	if options.Policy.Plan != nil {
-		candidate, err = options.Policy.Plan(registrations, resolved, bundleCatalog)
+		candidate, err = options.Policy.Plan(registrations, profile.Clone(), bundleCatalog)
 	} else {
 		candidate, err = appregistration.Plan(registrations, profile)
 	}
