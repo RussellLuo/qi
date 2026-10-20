@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/RussellLuo/gordis v0.0.0-20261014054822-1b6675a88714
+	github.com/RussellLuo/jsonschema-go v0.0.0-20261020143036-d0e0ff947dfa
 	github.com/hashicorp/go-plugin v1.6.3
 	golang.org/x/tools v0.43.0
 	google.golang.org/grpc v1.71.0

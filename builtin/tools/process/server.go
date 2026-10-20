@@ -13,6 +13,13 @@ import (
 )
 
 const providerID = "qi/tools/process/runtime"
+const toolInstanceID = "tool"
+
+// ConfigForTool maps program configuration to the business tool instance.
+// value must encode as a JSON object; gordis-rpc validates it during initialization.
+func ConfigForTool(value any) map[string]any {
+	return map[string]any{toolInstanceID: value}
+}
 
 type runtimeProvider struct{ capacity int }
 
@@ -132,11 +139,11 @@ func unitOptions(prototype gordis.Plugin, supplied ...ServerOptions) (rpc.ServeU
 			Plugins: []gordis.Plugin{&runtimeProvider{capacity: limits.MaxPending}, prototype},
 			Instances: []gordis.InstanceSpec{
 				{ID: "runtime", Plugin: providerID},
-				{ID: "tool", Plugin: spec.ID},
+				{ID: toolInstanceID, Plugin: spec.ID},
 			},
-			ConfigTarget: "tool",
-			Imports:      options.Imports,
-			Exports:      []rpc.Export{{Instance: "runtime", Binding: ProviderBinding}},
+			Config:  options.Config,
+			Imports: options.Imports,
+			Exports: []rpc.Export{{Instance: "runtime", Binding: ProviderBinding}},
 		},
 	}, nil
 }

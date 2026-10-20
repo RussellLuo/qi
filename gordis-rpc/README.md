@@ -21,7 +21,7 @@ The [basic walkthrough](examples/basic/README.md) explains configuration, the or
 
 ## Read more
 
-- [Core concepts](docs/concepts.md): contract, Binding, Boundary, Unit and Session.
+- [Core concepts](docs/concepts.md): contract, Binding, Boundary, Unit, Session and program configuration.
 - [Architecture and lifecycle](docs/architecture.md): responsibilities, startup, callbacks and cleanup.
 - [Bindings](docs/bindings.md): generate an adapter from a Go interface, or write a Codec.
 - [Development and verification](docs/development.md): commands, acceptance records and release boundaries.

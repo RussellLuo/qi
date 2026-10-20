@@ -104,21 +104,21 @@ func TestProcessPluginBoundary(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name, mode, config, want string
-		noConfig, fail, omit     bool
+		fail, omit               bool
 	}{
 		{name: "no-import-single-export", mode: "single", want: "Hello/request"},
 		{name: "empty-forward-config", mode: "single", config: `{}`, want: "Hello/request"},
 		{name: "forward-business-object", mode: "single", config: ` { "prefix" : "Welcome" } `, want: "Welcome/request"},
 		{name: "multiple-exports", mode: "multi", want: "Hello/request"},
 		{name: "duplex", mode: "duplex", want: "callback/request"},
-		{name: "import-only-no-config", mode: "import-only", noConfig: true},
-		{name: "import-only-explicit-empty", mode: "import-only", config: `{}`, noConfig: true},
-		{name: "task-no-config", mode: "task", noConfig: true},
+		{name: "import-only-no-config", mode: "import-only"},
+		{name: "import-only-explicit-empty", mode: "import-only", config: `{}`},
+		{name: "task-no-config", mode: "task"},
 		{name: "invalid-provider-config", mode: "single", config: `{"prefix":""}`, fail: true},
 		{name: "typed-nil-second-client", mode: "multi", fail: true},
 		{name: "nil-second-client", mode: "multi", fail: true},
 		{name: "second-provide-fails", mode: "multi", fail: true, omit: true},
-		{name: "no-config-rejects-fields", mode: "import-only", config: `{"prefix":"ignored"}`, noConfig: true, fail: true},
+		{name: "no-config-rejects-fields", mode: "import-only", config: `{"prefix":"ignored"}`, fail: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -147,10 +147,7 @@ func TestProcessPluginBoundary(t *testing.T) {
 				}
 				boundary.Exports[1] = rpc.NewBinding(contract.NumberKey, "1", codec)
 			}
-			options := rpc.ProcessOptions{PluginID: "processfixture/process", Command: rpc.Command{Path: binary, Args: []string{tc.mode}}, Identity: processfixture.Identity(), Boundary: boundary}
-			if tc.noConfig {
-				options.ConfigMode = rpc.NoConfig
-			}
+			options := rpc.ProcessOptions{PluginID: "processfixture/process", Command: rpc.Command{Path: binary, Args: []string{tc.mode}}, Identity: processfixture.Identity(), ChildBoundary: boundary}
 			prototype, err := rpc.NewProcess(options)
 			if err != nil {
 				t.Fatal(err)
@@ -188,17 +185,6 @@ func TestProcessPluginBoundary(t *testing.T) {
 			if (err != nil) != tc.fail {
 				t.Fatalf("Ready: %v, want failure=%v", err, tc.fail)
 			}
-			if tc.name == "no-config-rejects-fields" {
-				if !strings.Contains(err.Error(), "NoConfig") {
-					t.Fatalf("unexpected config error: %v", err)
-				}
-				select {
-				case <-attached:
-					t.Fatal("NoConfig started child")
-				default:
-				}
-				return
-			}
 			var instance *rpc.ProcessPlugin
 			select {
 			case instance = <-attached:
@@ -212,6 +198,20 @@ func TestProcessPluginBoundary(t *testing.T) {
 			if tc.fail {
 				if !d.Reaped || d.Ready {
 					t.Fatalf("failed activation returned before reap: %+v", d)
+				}
+				if tc.name == "no-config-rejects-fields" {
+					if !strings.Contains(err.Error(), "program config schema") {
+						t.Fatal(err)
+					}
+					if d.Cleanup == nil || !d.Cleanup.Forced {
+						t.Fatalf("unexpected pre-initialize cleanup: %+v", d)
+					}
+					select {
+					case event := <-events:
+						t.Fatalf("business activated: %s", event)
+					default:
+					}
+					return
 				}
 				if strings.Contains(tc.name, "nil-second-client") && !strings.Contains(err.Error(), "invalid contract client") {
 					t.Fatalf("wrong failure: %v", err)

@@ -59,7 +59,7 @@ func streamHost(t *testing.T, binary string, only bool, callback *streamCallback
 	if only {
 		args = []string{"import-only"}
 	}
-	prototype, err := rpc.NewProcess(rpc.ProcessOptions{PluginID: "streamfixture/process", Command: rpc.Command{Path: binary, Args: args}, Identity: streamfixture.Identity(), Boundary: streamfixture.Boundary(only), ConfigMode: rpc.NoConfig, Limits: rpc.Limits{StartupTimeout: 15 * time.Second, StopTimeout: 15 * time.Second}})
+	prototype, err := rpc.NewProcess(rpc.ProcessOptions{PluginID: "streamfixture/process", Command: rpc.Command{Path: binary, Args: args}, Identity: streamfixture.Identity(), ChildBoundary: streamfixture.Boundary(only), Limits: rpc.Limits{StartupTimeout: 15 * time.Second, StopTimeout: 15 * time.Second}})
 	if err != nil {
 		t.Fatal(err)
 	}

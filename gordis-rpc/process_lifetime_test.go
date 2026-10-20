@@ -81,7 +81,7 @@ func fxBuild(t *testing.T) string {
 func fxPrototype(t *testing.T, binary string) *rpc.ProcessPlugin {
 	t.Helper()
 	p, err := rpc.NewProcess(rpc.ProcessOptions{PluginID: "process", Command: rpc.Command{Path: binary, Args: []string{"duplex"}},
-		Identity: processfixture.Identity(), Boundary: processfixture.Boundary("duplex"),
+		Identity: processfixture.Identity(), ChildBoundary: processfixture.Boundary("duplex"),
 		Limits: rpc.Limits{StartupTimeout: 15 * time.Second, StopTimeout: 15 * time.Second}})
 	if err != nil {
 		t.Fatal(err)

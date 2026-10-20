@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/RussellLuo/gordis"
+	rpc "github.com/RussellLuo/gordis-rpc"
 	"github.com/RussellLuo/qi/builtin/tools/process/testdata/fixture"
 	"github.com/RussellLuo/qi/kernel/core/protocol"
 	"github.com/RussellLuo/qi/kernel/core/tools"
@@ -73,6 +75,86 @@ func executeGreeting(t *testing.T, runtime *tools.Runtime, ctx context.Context) 
 func fixtureConfig(mode, directory, prefix string) json.RawMessage {
 	raw, _ := json.Marshal(fixture.Plugin{Mode: mode, Directory: directory, Prefix: prefix})
 	return raw
+}
+
+func TestLoaderProgramConfiguration(t *testing.T) {
+	description, err := rpc.DescribeProgram(context.Background(), rpc.Command{Path: childExecutable}, rpc.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(description.ConfigSchema, &schema); err != nil || schema.Properties["prefix"] == nil {
+		t.Fatalf("tool program schema not exposed: %s, %v", description.ConfigSchema, err)
+	}
+	for _, tc := range []struct{ name, config, want string }{
+		{"defaults", `{}`, "Hello, Qi"},
+		{"partial", `{"mode":""}`, "Hello, Qi"},
+		{"override", `{"prefix":"Welcome, "}`, "Welcome, Qi"},
+		{"explicit-zero", `{"prefix":""}`, "Qi"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := mountLoader(t, loaderOptions(), json.RawMessage(tc.config))
+			if a.err != nil {
+				t.Fatal(a.err)
+			}
+			result, err := executeGreeting(t, a.runtime, context.Background())
+			var value struct{ Greeting string }
+			if err != nil || result.IsError || json.Unmarshal(result.Value, &value) != nil || value.Greeting != tc.want {
+				t.Fatalf("greeting = %s, %v", result.Value, err)
+			}
+			if err := a.instance.Unmount(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			assertClean(t, a.plugin.client)
+		})
+	}
+	for _, mode := range []string{"schema", "configure-error"} {
+		t.Run(mode+"-before-activation", func(t *testing.T) {
+			directory := t.TempDir()
+			prefix := "Hello, "
+			want := "program config Configure"
+			if mode == "schema" {
+				prefix = strings.Repeat("x", 101)
+				want = "program config schema"
+			}
+			a := mountLoader(t, loaderOptions(), fixtureConfig(mode, directory, prefix))
+			if a.err == nil || !strings.Contains(a.err.Error(), want) || len(a.runtime.Schemas()) != 0 {
+				t.Fatalf("invalid program config exposed tools: %v", a.err)
+			}
+			if a.plugin.client == nil || !a.plugin.client.Snapshot().Reaped {
+				t.Fatal("failed program was not reaped")
+			}
+			if entries, err := os.ReadDir(directory); err != nil || len(entries) != 0 {
+				t.Fatalf("business lifecycle ran: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestLoaderWithoutProgramConfiguration(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"prefix":"unexpected"}`} {
+		t.Run(raw, func(t *testing.T) {
+			options := loaderOptions()
+			options.Env = append(options.Env, "QI_C03_NO_CONFIG=1")
+			a := mountLoader(t, options, json.RawMessage(raw))
+			if raw == `{}` {
+				if a.err != nil {
+					t.Fatal(a.err)
+				}
+				if _, err := executeGreeting(t, a.runtime, context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				if err := a.instance.Unmount(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				assertClean(t, a.plugin.client)
+			} else if a.err == nil || len(a.runtime.Schemas()) != 0 || a.plugin.client == nil || !a.plugin.client.Snapshot().Reaped {
+				t.Fatalf("undeclared business configuration accepted: %v", a.err)
+			}
+		})
+	}
 }
 
 func TestLoaderProcessAndIndependentConfigurations(t *testing.T) {

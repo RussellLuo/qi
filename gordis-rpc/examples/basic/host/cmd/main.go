@@ -18,10 +18,10 @@ import (
 
 func run(path string, config json.RawMessage) (err error) {
 	provider, err := rpc.NewProcess(rpc.ProcessOptions{
-		PluginID: contract.PluginID,
-		Command:  rpc.Command{Path: path},
-		Identity: rpc.Identity{ID: "example/basic/program", Version: "1", Protocol: rpc.Protocol},
-		Boundary: rpc.Boundary{Exports: []rpc.Binding{bindings.Greeter}},
+		PluginID:      contract.PluginID,
+		Command:       rpc.Command{Path: path},
+		Identity:      rpc.Identity{ID: "example/basic/program", Version: "1", Protocol: rpc.Protocol},
+		ChildBoundary: rpc.Boundary{Exports: []rpc.Binding{bindings.Greeter}},
 	})
 	if err != nil {
 		return err
@@ -43,12 +43,12 @@ func run(path string, config json.RawMessage) (err error) {
 	}); err != nil {
 		return err
 	}
-	_, err = host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "consumer", Plugin: "consumer"})
+	_, err = host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "consumer", Plugin: consumer.PluginID})
 	return err
 }
 
 func main() {
-	config := flag.String("config", `{"prefix":"Hello"}`, "Greeter business configuration as a JSON object")
+	config := flag.String("config", `{}`, "Program configuration as a JSON object")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: basic [-config JSON] <plugin-executable>")

@@ -20,6 +20,7 @@ type ServerOptions struct {
 	ID, Version string
 	Limits      Limits
 	Imports     []rpc.Binding
+	Config      rpc.ConfigSpec
 }
 
 func (options HostOptions) defaults() HostOptions {

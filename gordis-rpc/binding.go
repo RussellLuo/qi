@@ -82,6 +82,9 @@ func (b Binding) valid() error {
 	return nil
 }
 
+// Boundary describes services crossing a child program's process boundary.
+// Imports are services the child needs from the Host; Exports are services
+// the child provides to the Host. Both sides use these same directions.
 type Boundary struct{ Imports, Exports []Binding }
 type declaration struct{ Name, Version, Direction string }
 

@@ -64,9 +64,9 @@ func (p *providerProbe) Spec() gordis.PluginSpec {
 func (p *providerProbe) Activate(ctx context.Context, scope *gordis.Scope) error {
 	var err error
 	p.session, err = rpc.Attach(ctx, scope, rpc.AttachOptions{
-		Command:  rpc.Command{Path: childExecutable},
-		Config:   p.config,
-		Boundary: rpc.Boundary{Exports: []rpc.Binding{p.binding}},
+		Command:       rpc.Command{Path: childExecutable},
+		Config:        p.config,
+		ChildBoundary: rpc.Boundary{Exports: []rpc.Binding{p.binding}},
 	})
 	return err
 }

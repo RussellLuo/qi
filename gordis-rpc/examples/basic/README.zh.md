@@ -22,15 +22,17 @@ GOWORK=off go build -o /tmp/gordis-rpc-basic-plugin ./examples/basic/plugin/cmd
 Hello, Gordis!
 ```
 
-Host 原样转交业务 JSON，不解码为子进程的配置类型：
+Host 根据发现的 Schema 校验程序 JSON，无需导入或解码为子进程的配置类型：
 
 ```sh
 /tmp/gordis-rpc-basic-host -config '{"prefix":"Welcome"}' /tmp/gordis-rpc-basic-plugin
 # Welcome, Gordis!
 /tmp/gordis-rpc-basic-host -config '{}' /tmp/gordis-rpc-basic-plugin
-# Hello, Gordis!（普通 Plugin 的默认值）
+# Hello, Gordis!（Config.New 的默认值）
 /tmp/gordis-rpc-basic-host -config '{"prefix":""}' /tmp/gordis-rpc-basic-plugin
-# Validate 失败，以状态码 1 退出，不打印 greeting。
+# Host Schema 校验失败，以状态码 1 退出，不打印 greeting。
+/tmp/gordis-rpc-basic-host -config '{"unexpected":true}' /tmp/gordis-rpc-basic-plugin
+# 同样在 Initialize 前被 Host 拒绝，状态码 1，不打印 greeting。
 ```
 
 ## 普通代码与程序装配
@@ -51,14 +53,29 @@ basic/
 [业务 Plugin](plugin/plugin.go) 以默认前缀 `Hello` 提供该 Key，由 Gordis
 解码和验证配置。[消费方 Plugin](host/plugin.go) 取得 Key 后调用普通接口。契约和业务代码均不依赖 RPC。
 
-Host 在[程序入口](host/cmd/main.go)中直接声明可执行路径、预期程序身份和 Boundary，创建
+`contract.PluginID` 为 `example/basic/greeter-provider`，服务 Key 的名称为
+`example/basic/greeter`。两者独立声明：前者选择插件实现，后者标识服务契约，
+通过 `Spec.Provides` 建立关系。
+
+消费方在 `host` 包中声明 `PluginID = "example/basic/greeter-consumer"`，
+由其 `Spec()` 和 Host 程序入口共同引用，通过 `Requires` 依赖 Greeter。
+实例 ID 仍使用 `"consumer"`、`"greeter"` 这样的短名称。
+
+Host 在[程序入口](host/cmd/main.go)中直接声明可执行路径、预期程序身份和 ChildBoundary，创建
 `rpc.NewProcess`。插件程序在自己的入口声明相同的程序身份，无需额外的共享声明包。
 库负责转交实例配置，在远端 Ready 后发布生成的 Greeter proxy。
 程序启动成功尚不代表业务 Ready：插件程序的 Unit 必须成功激活并解析导出。
 
 [插件程序入口](plugin/cmd/main.go) 装配一个普通 Greeter 实例，指定
-`ConfigTarget: "greeter"`，无 Imports，唯一生成的 Export 明确来自该实例，然后调用
-`ServeUnit`。不需要 Host 回调服务。Host 收到 greeting 后完成 Shutdown，合并业务与清理错误。
+由 `rpc.NewConfig[Config]()` 构建的 `Config: config`，无 Imports，唯一生成的 Export 明确来自该实例，然后调用
+`ServeUnit`。Config.New 提供 Hello，Configure 将程序配置映射到内部 greeter 实例。
+Host CLI 缺省传 `{}`；Host 按本次 Describe 的 Schema 在 Initialize 前拒绝空前缀和未知字段，
+child 仍独立校验。不需要 Host 回调服务。Host 收到 greeting 后完成 Shutdown，合并业务与清理错误。
+
+程序配置是具名非指针结构体，New/Configure 使用值接收者；json tag 使 prefix 可省略，
+jsonschema 提供描述，jsonschemax 声明 minLength 约束。required 在默认值之前校验；
+Configure 按 child 内部实例 ID 映射，Host 无需知道该 ID。
+映射、零值与 Schema 限制见[程序配置](../../docs/concepts.zh.md#声明程序配置)。
 
 ## 生成 Binding
 

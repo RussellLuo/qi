@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"reflect"
 	"sync"
 	"time"
@@ -65,8 +64,11 @@ type AttachOptions struct {
 	// Identity optionally pins the expected program; zero discovers it during handshake.
 	Identity Identity
 	Config   json.RawMessage
-	Boundary Boundary
-	Limits   Limits
+	// ChildBoundary declares the expected child imports and exports, using
+	// the same child-relative directions as Unit.Boundary(). It must match
+	// the child's complete set of contract names, versions and directions.
+	ChildBoundary Boundary
+	Limits        Limits
 	// Accept validates/publishes domain contributions after remote Ready.
 	// A failure synchronously rolls back the process before Attach returns.
 	Accept func(context.Context, *Session) error
@@ -89,8 +91,9 @@ type Diagnostics struct {
 
 // description is exchanged before constructing or activating business instances.
 type description struct {
-	Identity Identity
-	Bindings []declaration
+	Identity     Identity
+	Bindings     []declaration
+	ConfigSchema json.RawMessage
 }
 
 type ready struct {
@@ -136,10 +139,14 @@ func Attach(ctx context.Context, scope *gordis.Scope, options AttachOptions) (at
 			return nil, err
 		}
 	}
+	config, _, err := normalizeProgramConfig(options.Config)
+	if err != nil {
+		return nil, err
+	}
 	limits := options.Limits.defaults()
 	ctx, cancel := context.WithTimeout(ctx, limits.StartupTimeout)
 	defer cancel()
-	decl, err := declarations(options.Boundary)
+	decl, err := declarations(options.ChildBoundary)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +154,7 @@ func Attach(ctx context.Context, scope *gordis.Scope, options AttachOptions) (at
 		return nil, errors.New("empty command")
 	}
 	handlers := map[string]boundHandler{}
-	for _, binding := range options.Boundary.Imports {
+	for _, binding := range options.ChildBoundary.Imports {
 		handler, err := binding.resolve(ctx, scope)
 		if err != nil {
 			return nil, err
@@ -158,11 +165,11 @@ func Attach(ctx context.Context, scope *gordis.Scope, options AttachOptions) (at
 	if _, err = rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	session := &Session{info: SessionInfo{hex.EncodeToString(nonce), scope.ID(), scope.Generation()}, identity: options.Identity, boundary: Boundary{Imports: append([]Binding(nil), options.Boundary.Imports...), Exports: append([]Binding(nil), options.Boundary.Exports...)}}
+	session := &Session{info: SessionInfo{hex.EncodeToString(nonce), scope.ID(), scope.Generation()}, identity: options.Identity, boundary: Boundary{Imports: append([]Binding(nil), options.ChildBoundary.Imports...), Exports: append([]Binding(nil), options.ChildBoundary.Exports...)}}
 	session.diagnostics = Diagnostics{Identity: options.Identity, Session: session.info}
-	cmd := exec.Command(options.Command.Path, options.Command.Args...)
-	cmd.Env = append([]string{}, options.Command.Env...)
-	client := plugin.NewClient(&plugin.ClientConfig{SkipHostEnv: true, HandshakeConfig: handshake, Plugins: map[string]plugin.Plugin{"unit": new(transport)}, Cmd: cmd, AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC}, StartTimeout: limits.StartupTimeout, GRPCDialOptions: []grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(limits.MaxMessage), grpc.MaxCallSendMsgSize(limits.MaxMessage))}})
+	client, cmd := newProgramClient(options.Command, limits)
+	stopCancel := context.AfterFunc(ctx, client.Kill)
+	defer stopCancel()
 	session.client = client
 	callbacks := new(callbackServer)
 	session.closeFunc = func() error {
@@ -190,6 +197,7 @@ func Attach(ctx context.Context, scope *gordis.Scope, options AttachOptions) (at
 		}
 	}()
 	connection, err := client.Client()
+	stopCancel()
 	if cmd.Process != nil {
 		session.mu.Lock()
 		session.diagnostics.PID = cmd.Process.Pid
@@ -203,11 +211,8 @@ func Attach(ctx context.Context, scope *gordis.Scope, options AttachOptions) (at
 		return session, err
 	}
 	session.remote = raw.(*remote)
-	var described description
-	if err = invoke(ctx, session.remote.conn, "Describe", packet{}, &described); err != nil {
-		return session, err
-	}
-	if err = described.Identity.validate(); err != nil {
+	described, schema, err := describeRemote(ctx, session.remote)
+	if err != nil {
 		return session, err
 	}
 	if options.Identity != (Identity{}) && options.Identity != described.Identity {
@@ -222,10 +227,14 @@ func Attach(ctx context.Context, scope *gordis.Scope, options AttachOptions) (at
 	session.diagnostics.Identity = described.Identity
 	session.mu.Unlock()
 
+	if err = schema.validate(config); err != nil {
+		return session, err
+	}
+
 	broker := session.serveCallbacks(handlers, limits, callbacks)
 	var result ready
 	session.initializationAttempted = true
-	err = invoke(ctx, session.remote.conn, "Initialize", packet{Identity: options.Identity, Session: session.info, Bindings: decl, Broker: broker, Config: options.Config}, &result)
+	err = invoke(ctx, session.remote.conn, "Initialize", packet{Identity: options.Identity, Session: session.info, Bindings: decl, Broker: broker, Config: config}, &result)
 	if err != nil {
 		return session, err
 	}

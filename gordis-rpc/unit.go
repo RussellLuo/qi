@@ -8,18 +8,27 @@ import (
 	"github.com/RussellLuo/gordis"
 )
 
+// Export selects a service provided by an instance inside the Unit to expose
+// to the Host. The instance ID remains local to the child program.
 type Export struct {
 	Instance string
 	Binding  Binding
 }
+
+// Unit describes the child program's local assembly and process boundary.
+// Services used only between local instances need no Imports or Exports entry.
 type Unit struct {
-	Plugins      []gordis.Plugin
-	Instances    []gordis.InstanceSpec
-	ConfigTarget string
-	Imports      []Binding
-	Exports      []Export
+	Plugins   []gordis.Plugin
+	Instances []gordis.InstanceSpec
+	Config    ConfigSpec
+	// Imports are Host services made available as local proxies to the instances.
+	Imports []Binding
+	// Exports are local instance services exposed to the Host.
+	Exports []Export
 }
 
+// Boundary projects the Unit's imports and exports into its external contract,
+// omitting internal export source IDs. The Host's ChildBoundary must match it.
 func (u Unit) Boundary() Boundary {
 	b := Boundary{Imports: append([]Binding(nil), u.Imports...)}
 	for _, e := range u.Exports {
@@ -55,11 +64,6 @@ func (u Unit) validate() error {
 			return errors.New("duplicate instance ID")
 		}
 		instances[i.ID] = s
-	}
-	if u.ConfigTarget != "" {
-		if _, ok := instances[u.ConfigTarget]; !ok {
-			return errors.New("unknown config target")
-		}
 	}
 	// A Unit is closed assembly, unlike a dynamic Host that may wait for a
 	// future provider. Check membership only; Gordis owns cycle detection,
@@ -155,8 +159,9 @@ func assemble(ctx context.Context, unit Unit, config json.RawMessage, imports in
 	if err := unit.validate(); err != nil {
 		return nil, nil, err
 	}
-	if unit.ConfigTarget == "" && len(config) != 0 {
-		return nil, nil, errors.New("unit has no config target")
+	instances, err := unit.Config.configure(ctx, config, unit.Instances)
+	if err != nil {
+		return nil, nil, err
 	}
 	handlers := map[string]boundHandler{}
 	plugins := append([]gordis.Plugin(nil), unit.Plugins...)
@@ -167,10 +172,7 @@ func assemble(ctx context.Context, unit Unit, config json.RawMessage, imports in
 	}
 	changes := host.Changes()
 	changes.Mount(host.Env(), gordis.InstanceSpec{ID: "rpc-imports", Plugin: "rpc/imports"})
-	for _, instance := range unit.Instances {
-		if instance.ID == unit.ConfigTarget {
-			instance.Config = append(json.RawMessage(nil), config...)
-		}
+	for _, instance := range instances {
 		changes.Mount(host.Env(), instance)
 	}
 	operation, err := changes.Apply(ctx)

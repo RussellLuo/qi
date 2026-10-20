@@ -49,7 +49,6 @@ func TestUnitRejectsInvalidBoundaryAndGraph(t *testing.T) {
 			u.Plugins[0] = &declarationPlugin{spec: gordis.PluginSpec{ID: "value", Provides: []gordis.ServiceSpec{gordis.NewKey[int]("test/value").Spec()}}}
 		}},
 		{"unknown-source", func(u *Unit) { u.Exports[0].Instance = "missing" }},
-		{"unknown-config-target", func(u *Unit) { u.ConfigTarget = "missing" }},
 		{"incomplete-binding", func(u *Unit) { u.Exports[0].Binding = Binding{} }},
 		{"duplicate-export", func(u *Unit) { u.Exports = append(u.Exports, u.Exports[0]) }},
 	} {
@@ -139,7 +138,7 @@ func (p *importValidationLoader) Spec() gordis.PluginSpec {
 func (p *importValidationLoader) Activate(ctx context.Context, scope *gordis.Scope) error {
 	_, err := Attach(ctx, scope, AttachOptions{
 		Command: Command{Path: "/must-not-start"}, Identity: Identity{ID: "test", Version: "1", Protocol: Protocol},
-		Boundary: Boundary{Imports: []Binding{p.binding}}, Limits: Limits{StartupTimeout: 50 * time.Millisecond},
+		ChildBoundary: Boundary{Imports: []Binding{p.binding}}, Limits: Limits{StartupTimeout: 50 * time.Millisecond},
 	})
 	p.result <- err
 	return err

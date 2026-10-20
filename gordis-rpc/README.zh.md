@@ -21,7 +21,7 @@ GOWORK=off go build -o /tmp/gordis-rpc-basic-plugin ./examples/basic/plugin/cmd
 
 ## 继续阅读
 
-- [核心概念](docs/concepts.zh.md)：契约、Binding、Boundary、Unit 和 Session。
+- [核心概念](docs/concepts.zh.md)：契约、Binding、Boundary、Unit、Session 和程序配置。
 - [架构与生命周期](docs/architecture.zh.md)：职责划分、启动、回调和清理。
 - [Binding](docs/bindings.zh.md)：从 Go 接口生成适配代码，或手写 Codec。
 - [开发与验证](docs/development.zh.md)：运行命令、验收记录和发行边界。

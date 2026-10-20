@@ -9,11 +9,13 @@ import (
 	"github.com/RussellLuo/gordis-rpc/examples/basic/contract"
 )
 
+const PluginID = "example/basic/greeter-consumer"
+
 type Plugin struct{}
 
 func (*Plugin) Spec() gordis.PluginSpec {
 	return gordis.PluginSpec{
-		ID:       "consumer",
+		ID:       PluginID,
 		Requires: []gordis.ServiceSpec{contract.Key.Spec()},
 		New:      func() gordis.Plugin { return new(Plugin) },
 	}

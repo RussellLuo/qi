@@ -16,7 +16,7 @@ func TestProcessPluginInstanceIsolation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	prototype, err := rpc.NewProcess(rpc.ProcessOptions{PluginID: "process", Command: rpc.Command{Path: fxBuild(t), Args: []string{"single"}},
-		Boundary: processfixture.Boundary("single")}) // zero Identity exercises discovery
+		ChildBoundary: processfixture.Boundary("single")}) // zero Identity exercises discovery
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -74,8 +74,8 @@ func TestLocalProcessParityAndCleanup(t *testing.T) {
 	}
 	prototype, err := rpc.NewProcess(rpc.ProcessOptions{
 		PluginID: contract.PluginID, Command: rpc.Command{Path: binary},
-		Identity: rpc.Identity{ID: "example/basic/program", Version: "1", Protocol: rpc.Protocol},
-		Boundary: rpc.Boundary{Exports: []rpc.Binding{bindings.Greeter}},
+		Identity:      rpc.Identity{ID: "example/basic/program", Version: "1", Protocol: rpc.Protocol},
+		ChildBoundary: rpc.Boundary{Exports: []rpc.Binding{bindings.Greeter}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -170,8 +170,13 @@ func TestLocalProcessParityAndCleanup(t *testing.T) {
 					}
 					if instance != nil {
 						diagnostics := instance.Snapshot()
-						if diagnostics.Ready || !diagnostics.Reaped || diagnostics.Cleanup == nil ||
-							!diagnostics.Cleanup.CleanupComplete || diagnostics.Cleanup.Forced || len(diagnostics.Cleanup.Errors) != 0 {
+						if diagnostics.Ready || !diagnostics.Reaped || diagnostics.Cleanup == nil {
+							t.Fatalf("child reaping: %+v", diagnostics)
+						}
+						if tc.fail && (!diagnostics.Cleanup.Forced || diagnostics.Cleanup.CleanupComplete) {
+							t.Fatalf("expected pre-initialize rejection: %+v", diagnostics)
+						}
+						if !tc.fail && (!diagnostics.Cleanup.CleanupComplete || diagnostics.Cleanup.Forced || len(diagnostics.Cleanup.Errors) != 0) {
 							t.Fatalf("child cleanup/reaping: %+v", diagnostics)
 						}
 						if service != nil {

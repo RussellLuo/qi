@@ -26,7 +26,8 @@ func TestExternalModule(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("go.mod", fmt.Sprintf("module example.com/consumer\n\ngo 1.27\nrequire github.com/RussellLuo/gordis-rpc v0.0.0\nreplace github.com/RussellLuo/gordis-rpc => %s\n", filepath.ToSlash(module)))
+	consumerModule := fmt.Sprintf("module example.com/consumer\n\ngo 1.27\nrequire github.com/RussellLuo/gordis-rpc v0.0.0\nreplace github.com/RussellLuo/gordis-rpc => %s\n", filepath.ToSlash(module))
+	write("go.mod", consumerModule)
 	write("contract/service.go", `package contract
 import("context";"encoding/json";"encoding/json/jsontext";"github.com/RussellLuo/gordis")
 const Version = "external/1"
@@ -53,7 +54,7 @@ func(*Plugin)EchoRaw(_ context.Context,v contract.Raw)(contract.Raw,error){retur
 func(*Plugin)Stream(_ context.Context,b contract.Flag,n int64,f float64,y contract.Yield)error{return y(contract.Value{Enabled:b,Number:float64(n)+f})}
 `)
 	// Packages.Load and downstream commands must resolve only this temporary
-	// module plus an explicit mapping for the unpublished library.
+	// module plus explicit mappings for unpublished local libraries.
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOFLAGS", "-mod=mod")
 	t.Setenv("GOPROXY", "off")

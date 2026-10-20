@@ -167,10 +167,10 @@ func (plugin *loaderPlugin) Activate(ctx context.Context, scope *gordis.Scope) e
 	command.Args = plugin.options.Args
 	command.Env = plugin.options.Env
 	plugin.session, err = rpc.Attach(ctx, scope, rpc.AttachOptions{
-		Command:  command,
-		Identity: plugin.identity,
-		Config:   plugin.config,
-		Boundary: toolBoundary(plugin.options.Imports),
+		Command:       command,
+		Identity:      plugin.identity,
+		Config:        plugin.config,
+		ChildBoundary: toolBoundary(plugin.options.Imports),
 		Accept: func(ctx context.Context, session *rpc.Session) error {
 			return registerRemoteTools(ctx, scope, runtime, session, plugin.options)
 		},

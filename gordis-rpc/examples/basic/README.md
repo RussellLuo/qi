@@ -22,15 +22,17 @@ Expected output:
 Hello, Gordis!
 ```
 
-The Host forwards business JSON without decoding the plugin program's configuration type:
+The Host validates program JSON against the discovered Schema without importing the program's configuration type:
 
 ```sh
 /tmp/gordis-rpc-basic-host -config '{"prefix":"Welcome"}' /tmp/gordis-rpc-basic-plugin
 # Welcome, Gordis!
 /tmp/gordis-rpc-basic-host -config '{}' /tmp/gordis-rpc-basic-plugin
-# Hello, Gordis! (the ordinary Plugin's default)
+# Hello, Gordis! (Config.New's default)
 /tmp/gordis-rpc-basic-host -config '{"prefix":""}' /tmp/gordis-rpc-basic-plugin
 # Fails validation and exits with status 1; no greeting is printed.
+/tmp/gordis-rpc-basic-host -config '{"unexpected":true}' /tmp/gordis-rpc-basic-plugin
+# Also fails on the Host before Initialize, with status 1 and no greeting.
 ```
 
 ## Ordinary code and program assembly
@@ -54,17 +56,35 @@ provides that Key with a default prefix of `Hello`; Gordis decodes and validates
 its configuration. The [consumer Plugin](host/plugin.go) gets the Key and calls the ordinary
 interface. Contract and business code have no RPC dependency.
 
+`contract.PluginID` is `example/basic/greeter-provider`; the service Key is named
+`example/basic/greeter`. They are declared independently: the former selects a
+plugin implementation, the latter identifies a service contract, and
+`Spec.Provides` connects them.
+
+The consumer declares `PluginID = "example/basic/greeter-consumer"` in the `host`
+package, shared by its `Spec()` and the Host program entry. It depends on Greeter
+through `Requires`. Instance IDs retain short names such as `"consumer"` and `"greeter"`.
+
 The [Host entry](host/cmd/main.go) creates `rpc.NewProcess` with the executable path,
-expected program identity and Boundary declared inline. The plugin program declares the
+expected program identity and ChildBoundary declared inline. The plugin program declares the
 same identity in its entry; no shared declaration package is needed. The library forwards
 instance configuration and publishes the generated Greeter proxy after remote
 Ready. Starting the executable alone does not make the business Ready: the plugin program's
 Unit must activate and resolve its export first.
 
 The [plugin program entry](plugin/cmd/main.go) assembles one ordinary Greeter instance,
-`ConfigTarget: "greeter"`, no Imports, and one generated Export sourced from
-that instance, then calls `ServeUnit`. No Host callback service is needed. The
+`Config: config` from `rpc.NewConfig[Config]()`, no Imports, and one generated Export sourced from
+that instance, then calls `ServeUnit`. Config.New supplies Hello; Configure maps
+the program configuration to the internal greeter instance. The CLI defaults to
+`{}`; empty prefixes and unknown fields fail on the Host before Initialize. No Host callback service is needed. The
 Host receives the greeting, completes Shutdown and joins business/cleanup errors.
+
+The program struct is named and non-pointer, with value-receiver New/Configure
+methods; its json tag makes prefix optional, jsonschema describes it, and
+jsonschemax enforces minLength. Required input is validated before defaults;
+Configure maps by the child-local instance ID, which the Host need not know.
+See [program configuration](../../docs/concepts.md#declare-program-configuration)
+for mapping, zero values and Schema limits.
 
 ## Generate the Binding
 

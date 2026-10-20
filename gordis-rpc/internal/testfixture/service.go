@@ -119,8 +119,22 @@ func (p *Plugin) Stream(ctx context.Context, yield func(json.RawMessage) error) 
 	}
 }
 func Unit() rpc.Unit {
-	return rpc.Unit{Plugins: []gordis.Plugin{new(Plugin)}, Instances: []gordis.InstanceSpec{{ID: "service", Plugin: "service"}}, ConfigTarget: "service", Imports: []rpc.Binding{Import}, Exports: []rpc.Export{{Instance: "service", Binding: Export}}}
+	config, err := rpc.NewConfig[Config]()
+	if err != nil {
+		panic(err)
+	}
+	return rpc.Unit{Plugins: []gordis.Plugin{new(Plugin)}, Instances: []gordis.InstanceSpec{{ID: "service", Plugin: "service"}}, Config: config, Imports: []rpc.Binding{Import}, Exports: []rpc.Export{{Instance: "service", Binding: Export}}}
 }
 func Identity() rpc.Identity {
 	return rpc.Identity{ID: "test/program", Version: "1", Protocol: rpc.Protocol}
+}
+
+type Config struct {
+	WaitValidation bool `json:"wait_validation,omitempty"`
+	FailActivation bool `json:"fail_activation,omitempty"`
+}
+
+func (Config) New() Config { return Config{} }
+func (c Config) Configure(context.Context) (map[string]any, error) {
+	return map[string]any{"service": c}, nil
 }

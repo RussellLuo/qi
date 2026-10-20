@@ -25,8 +25,8 @@ type ServeUnitOptions struct {
 	Unit     Unit
 }
 
-// ServeUnit is the standard standalone-program entry. Configuration is applied
-// only to ConfigTarget. Cancelling ctx stops the server and bounds cleanup.
+// ServeUnit is the standard standalone-program entry. Unit.Config maps program
+// configuration to local instances. Cancelling ctx stops the server and bounds cleanup.
 func ServeUnit(ctx context.Context, o ServeUnitOptions) error {
 	if e := ctx.Err(); e != nil {
 		return e
@@ -244,7 +244,7 @@ func (s *unitServer) unary(c context.Context, method string, in *wrapperspb.Byte
 		if err != nil {
 			return nil, err
 		}
-		return encode(description{Identity: s.options.Identity, Bindings: bindings})
+		return encode(description{Identity: s.options.Identity, Bindings: bindings, ConfigSchema: s.options.Unit.Config.schemaJSON()})
 	}
 	if method == "Initialize" {
 		return s.initialize(c, p)

@@ -48,7 +48,7 @@ func TestGeneratedUnaryProcess(t *testing.T) {
 			if old {
 				binding = rpc.NewBinding(contract.Key, "1", rpc.Codec[contract.Service]{Client: func(rpc.Invoker) contract.Service { return nil }, Server: func(contract.Service) rpc.Handler { return rpc.Handler{} }})
 			}
-			prototype, err := rpc.NewProcess(rpc.ProcessOptions{PluginID: "genfixture/process", Command: rpc.Command{Path: binary}, Identity: rpc.Identity{ID: "genfixture/program", Version: "1", Protocol: rpc.Protocol}, Boundary: rpc.Boundary{Exports: []rpc.Binding{binding}}})
+			prototype, err := rpc.NewProcess(rpc.ProcessOptions{PluginID: "genfixture/process", Command: rpc.Command{Path: binary}, Identity: rpc.Identity{ID: "genfixture/program", Version: "1", Protocol: rpc.Protocol}, ChildBoundary: rpc.Boundary{Exports: []rpc.Binding{binding}}})
 			if err != nil {
 				t.Fatal(err)
 			}

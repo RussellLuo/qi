@@ -29,7 +29,7 @@ type loader struct {
 }
 
 func (p *loader) Spec() gordis.PluginSpec {
-	return gordis.PluginSpec{ID: "loader", New: func() gordis.Plugin { return &loader{p.options, p.opened} }, Requires: rpc.RequiredServices(p.options.Boundary.Imports)}
+	return gordis.PluginSpec{ID: "loader", New: func() gordis.Plugin { return &loader{p.options, p.opened} }, Requires: rpc.RequiredServices(p.options.ChildBoundary.Imports)}
 }
 func (p *loader) Activate(ctx context.Context, scope *gordis.Scope) error {
 	session, err := rpc.Attach(ctx, scope, p.options)
@@ -67,14 +67,14 @@ func TestProcessLifecycle(t *testing.T) {
 				}
 				return "callback/" + input, nil
 			})
-			options := rpc.AttachOptions{Command: rpc.Command{Path: binary}, Identity: testfixture.Identity(), Config: json.RawMessage(`{}`), Boundary: testfixture.Unit().Boundary()}
+			options := rpc.AttachOptions{Command: rpc.Command{Path: binary}, Identity: testfixture.Identity(), Config: json.RawMessage(`{}`), ChildBoundary: testfixture.Unit().Boundary()}
 			switch mode {
 			case "discover":
 				options.Identity = rpc.Identity{}
 			case "identity-mismatch":
 				options.Identity.Version = "wrong"
 			case "boundary-mismatch":
-				options.Boundary.Exports = nil
+				options.ChildBoundary.Exports = nil
 			case "accept-failure":
 				options.Accept = func(context.Context, *rpc.Session) error { return errors.New("rejected") }
 			case "activation-failure":

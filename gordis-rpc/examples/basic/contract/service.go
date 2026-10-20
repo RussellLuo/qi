@@ -9,7 +9,7 @@ import (
 
 //go:generate go run github.com/RussellLuo/gordis-rpc/cmd/rpcgen -type Greeter -key Key -version Version -package bindings -out ../bindings/greeter.go
 
-const PluginID = "example/basic/greeter"
+const PluginID = "example/basic/greeter-provider"
 const Version = "1"
 
 type Greeter interface {
