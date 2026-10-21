@@ -49,4 +49,4 @@ go test -race ./kernel/boot/...
 
 已有验收记录的平台是 darwin/arm64。正式版本构建、独立发行依赖、其他目标平台和外部真实模型链路仍需各自验证；本库不替代 Qi 的 LLM/prompt 领域适配。更改未发布 API 或协议时，Host、child 与生成代码须同步更新。
 
-协议仍为 `gordis-rpc/1`，transport 握手版本为 1；这不表示可混用配置载荷变更前后的二进制。ConfigTarget、ConfigMode、ProcessConfigMode、ForwardConfig、NoConfig 已删除；有配置程序通过 Unit.Config/NewConfig/Configure 声明，无配置程序使用 ConfigSpec 零值。历史验收页保留当时 API；后续 stream 和 Unit 配方仍按各自示例阶段交付。
+协议仍为 `gordis-rpc/1`，transport 握手版本为 1；这不表示可混用配置载荷变更前后的二进制。ConfigTarget、ConfigMode、ProcessConfigMode、ForwardConfig、NoConfig 已删除；有配置程序通过 Unit.Config/NewConfig/Configure 声明，无配置程序使用 ConfigSpec 零值。历史验收页保留当时 API；[stream 示例](../examples/stream/README.zh.md)已交付，Unit 配方仍属后续阶段。

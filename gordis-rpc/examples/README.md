@@ -12,8 +12,11 @@ Directory and calls it from Greeter. Both sides use ordinary business Plugins,
 with one Import and one Export. Its zero ConfigSpec accepts only omitted input
 or an empty object, without a Host configuration mode.
 
-From `gordis-rpc/`, run `GOWORK=off go test -race -count=1 ./examples/...` for real
-Host and plugin programs, configuration, Local/process comparison and dependency checks.
+Then read [stream](stream/README.md): consume typed results one chunk at a time,
+first to completion and then stopping early through a local yield error.
 
-The stream example, Unit assembly recipe and optional events integration belong
+From `gordis-rpc/`, run `GOWORK=off go test -race -count=1 ./examples/...` for real
+Host and plugin programs, configuration, Local/process comparison, streaming and dependency checks.
+
+The Unit assembly recipe and optional events integration belong
 to later stages and are not implemented yet.
