@@ -45,14 +45,16 @@ You can move the entire `dist/tool-process/` directory; Go is not needed at runt
 
 ## How it works
 
-- [plugin.go](plugin.go) uses the same ordinary Plugin model as the in-process example, registering `greet` through `runtime.Bind(scope).Register`.
-- [cmd/greet/main.go](cmd/greet/main.go) calls `process.Main(new(greet.Plugin))` to run the Plugin as a separate program.
+- The [shared Plugin](../tool-plugin/plugin/plugin.go) is the single business implementation used by both examples, registering `greet` through `runtime.Bind(scope).Register`.
+- [cmd/greet/main.go](cmd/greet/main.go) imports that same business package and calls `process.Main(new(greet.Plugin))`, without importing the local Extension or Host startup assembly.
 - The [Profile](profile.yaml) selects the tool by program path, with business configuration directly under `config`:
 
 ```yaml
 - id: greet
   plugin: ./packages/greet/greet
 ```
+
+The two examples retain separate build and delivery instructions and share one business implementation. Their Profiles keep the same instance IDs, business configuration and consumers; only `greet.plugin` changes from `example/tool-plugin` to the program path. This example has no business configuration. Local deployment requires the Extension compiled into the Host; process deployment requires the tool executable.
 
 Relative paths resolve from the selected Profile file's directory, so they keep working from another working directory or after moving the delivery directory.
 

@@ -2,12 +2,11 @@ package process
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
-	"time"
 
+	"github.com/RussellLuo/qi/builtin/tools/process/internal/contract"
 	"github.com/RussellLuo/qi/kernel/core/protocol"
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
@@ -15,59 +14,72 @@ import (
 func invalidResponse(message string) *CallError {
 	return &CallError{Code: CodeHostValidation, Message: message}
 }
-func describeTools(descriptions []tools.DefinitionInfo) ([]Tool, error) {
-	var definitions []Tool
-	for _, d := range descriptions {
-		if d.DeferLoading || d.Timeout < 0 || d.Timeout > MaxToolTimeout || d.Timeout%time.Millisecond != 0 {
-			return nil, errors.New("toolprocess: unsupported deferred Tool or timeout")
-		}
-		definitions = append(definitions, Tool{
-			Name: d.Name, Description: d.Description, Parameters: json.RawMessage(d.Parameters), Output: json.RawMessage(d.Output),
-			TimeoutMillis: d.Timeout.Milliseconds(), FailureMode: FailureMode(d.FailureMode),
-		})
+func describeTools(ds []tools.DefinitionInfo) ([]Tool, error) {
+	out := make([]Tool, len(ds))
+	for i, d := range ds {
+		out[i] = Tool{Name: d.Name, Description: d.Description, Parameters: d.Parameters.Clone(), Output: d.Output.Clone(), TimeoutNanos: int64(d.Timeout), FailureMode: FailureMode(d.FailureMode), DeferLoading: d.DeferLoading}
 	}
-	return definitions, ValidateTools(definitions)
+	return out, ValidateTools(out)
 }
-
-func wireResult(ctx context.Context, result tools.ExecutionResult, executeErr error) (CallResponse, error) {
-	if result.Meta != nil || len(result.AdditionalContexts) != 0 || result.ConcludesTurn || len(result.Content) != 1 {
-		return CallResponse{}, invalidResponse("unsupported Tool result")
-	}
-	text, ok := result.Content[0].(protocol.TextBlock)
-	if !ok {
-		return CallResponse{}, invalidResponse("unsupported Tool content")
-	}
-	if result.IsError {
-		if result.Error == nil || text.Text != "Error: "+result.Error.Message {
-			return CallResponse{}, invalidResponse("unsupported Tool failure")
+func encodeExecution(e tools.Execution) CallRequest {
+	return CallRequest{AgentID: e.Identity.AgentID, SessionID: string(e.Identity.SessionID), Turn: int64(e.Identity.Turn), Step: int64(e.Identity.Step), CWD: e.CWD, Tool: e.Call.Name, ToolCallID: string(e.Call.ID), CallArguments: e.Call.Arguments, Arguments: append([]byte(nil), e.Arguments...)}
+}
+func decodeExecution(e CallRequest) tools.Execution {
+	return tools.Execution{Identity: tools.ExecutionIdentity{AgentID: e.AgentID, SessionID: protocol.SessionID(e.SessionID), Turn: protocol.TurnID(e.Turn), Step: protocol.StepID(e.Step)}, CWD: e.CWD, Call: protocol.ToolCall{ID: protocol.ToolCallID(e.ToolCallID), Name: e.Tool, Arguments: e.CallArguments}, Arguments: append([]byte(nil), e.Arguments...)}
+}
+func encodeResult(r tools.ExecutionResult) (contract.Result, error) {
+	out := contract.Result{IsError: r.IsError, Value: r.Value, Meta: r.Meta, ConcludesTurn: r.ConcludesTurn}
+	if r.Error != nil {
+		out.Failure = &contract.Failure{Message: r.Error.Message}
+		if r.Error.Info != nil {
+			i := r.Error.Info
+			out.Failure.Info = &contract.FailureInfo{Name: i.Name, Code: i.Code, Reason: i.Reason}
 		}
-		code := ""
-		if result.Error.Info != nil {
-			code = result.Error.Info.Code
+	}
+	var err error
+	// nil is a distinct invalid business result; Host Runtime applies its policy.
+	if r.Content != nil {
+		out.Content, err = protocol.EncodeContent(r.Content)
+		if err != nil {
+			return out, err
 		}
-		switch code {
-		case "ABORTED_BEFORE_DISPATCH":
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return CallResponse{}, &CallError{Code: CodeTimeout, Message: "Tool call timed out"}
+	}
+	if r.AdditionalContexts != nil {
+		out.Contexts = make([][]byte, len(r.AdditionalContexts))
+		for i, m := range r.AdditionalContexts {
+			out.Contexts[i], err = json.Marshal(m)
+			if err != nil {
+				return out, err
 			}
-			return CallResponse{}, &CallError{Code: CodeCancelled, Message: "Tool call cancelled"}
-		case "cancelled":
-			return CallResponse{}, &CallError{Code: CodeCancelled, Message: "Tool call cancelled"}
-		case "timeout":
-			return CallResponse{}, &CallError{Code: CodeTimeout, Message: "Tool call timed out"}
-		case "invalid_result", "invalid_arguments":
-			return CallResponse{}, invalidResponse("invalid Tool value")
-		case "panic":
-			return CallResponse{}, &CallError{Code: CodeTransport, Message: "Tool execution panicked"}
 		}
-		// Native errors can contain arguments or credentials. Preserve the
-		// Provider/1 business-error category with a bounded safe message.
-		return CallResponse{Error: NewToolError("tool execution failed")}, nil
 	}
-	if executeErr != nil || text.Text != string(result.Value) || validateJSONDocument(result.Value, MaxResultBytes, "result") != nil {
-		return CallResponse{}, invalidResponse("invalid Tool result")
+	return out, nil
+}
+func decodeResult(r contract.Result) (tools.ExecutionResult, error) {
+	out := tools.ExecutionResult{IsError: r.IsError, Value: r.Value, Meta: r.Meta, ConcludesTurn: r.ConcludesTurn}
+	if r.Failure != nil {
+		out.Error = &tools.Failure{Message: r.Failure.Message}
+		if r.Failure.Info != nil {
+			i := r.Failure.Info
+			out.Error.Info = &protocol.ToolFailureInfo{Name: i.Name, Code: i.Code, Reason: i.Reason}
+		}
 	}
-	return CallResponse{Result: append(json.RawMessage(nil), result.Value...)}, nil
+	var err error
+	if r.Content != nil {
+		out.Content, err = protocol.DecodeContent(r.Content)
+		if err != nil {
+			return out, err
+		}
+	}
+	if r.Contexts != nil {
+		out.AdditionalContexts = make([]protocol.Message, len(r.Contexts))
+		for i, b := range r.Contexts {
+			if err = json.Unmarshal(b, &out.AdditionalContexts[i]); err != nil {
+				return out, err
+			}
+		}
+	}
+	return out, nil
 }
 
 func decodeStrict(raw json.RawMessage, value any) error {

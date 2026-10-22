@@ -28,3 +28,5 @@ Binding 还提供 `RegisterBatch` 和 `RegisterMiddleware`。它捕获精确的 
 ```sh
 go -C kernel test ./core/tools
 ```
+
+进程桥接框架可用 `NewExport()` 创建隔离注册容器，通过 `Runtime()` 满足相同 RuntimeKey，在业务激活后 `Seal()` 并读取 `Describe()`。描述采用实际编译后的有效默认值。`Execute()` 只调用原始业务函数，不重复执行 Host 策略；每次调用持有原 owner/registration 的租约直到 worker 真正返回，空闲时不占租约。框架必须监控 `Done()/Err()`，在不支持的操作或 owner 停止后撤回远端贡献，并在 owner OnStop 之外调用 `Close()` 排空。该容器拒绝 middleware、本地准备/查询和封存后变更。普通 `NewRuntime()` 不受此限制。具体 wire、大小限制和 Child 装配见 [process](../../../builtin/tools/process/README.zh.md)。

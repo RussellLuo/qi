@@ -42,12 +42,12 @@ The model passes `{"name":"Qi"}` and the tool returns the JSON string `"Hello, Q
 
 ## How it works
 
-All implementation lives in [plugin.go](plugin.go):
+The business implementation lives in [plugin/plugin.go](plugin/plugin.go), imported by both this example and the process example:
 
 - `Spec` declares `tools.RuntimeKey.Spec()` as a dependency. `Activate` obtains the Tool Runtime with `scope.Get(tools.RuntimeKey)` and calls `runtime.Bind(scope).Register` with a `tools.Definition`, declaring `greet`, its required string argument `name` and its string result. The Tool Runtime validates arguments before execution.
 - The execution function decodes `name` and returns `json.Marshal("Hello, " + args.Name + "!")`. `tools.JSONTool` uses the result for both structured `Value` and model-facing text.
 - Binding assigns the contribution to this Scope generation. Stopping the plugin withdraws it automatically.
-- `Extension` publishes the plugin type. The [Profile](profile.yaml) selects an instance using `example/tool-plugin`.
+- The outer [extension.go](extension.go) publishes the shared Plugin type through `Extension`. The [Profile](profile.yaml) selects an instance using `example/tool-plugin`.
 
 This example belongs to the builtin Go module using Qi's public APIs.
 

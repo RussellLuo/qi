@@ -2,7 +2,6 @@ package process
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -24,22 +23,17 @@ func registerRemoteTools(ctx context.Context, scope *gordis.Scope, runtime *tool
 
 	definitions := make([]tools.Definition, 0, len(remoteTools))
 	for _, remote := range remoteTools {
-		executeJSON := tools.JSONTool(func(callCtx context.Context, execution tools.Execution) (json.RawMessage, error) {
-			return client.Call(callCtx, CallRequest{
-				Tool:       remote.Name,
-				Arguments:  execution.Arguments,
-				ToolCallID: execution.Call.ID.String(),
-			})
-		})
+
 		definitions = append(definitions, tools.Definition{
-			Name:        remote.Name,
-			Description: remote.Description,
-			Parameters:  tools.JSONSchema(remote.Parameters),
-			Output:      tools.JSONSchema(remote.Output),
-			Timeout:     time.Duration(remote.TimeoutMillis) * time.Millisecond,
-			FailureMode: tools.FailureMode(remote.FailureMode),
+			DeferLoading: remote.DeferLoading,
+			Name:         remote.Name,
+			Description:  remote.Description,
+			Parameters:   tools.JSONSchema(remote.Parameters),
+			Output:       tools.JSONSchema(remote.Output),
+			Timeout:      time.Duration(remote.TimeoutNanos),
+			FailureMode:  tools.FailureMode(remote.FailureMode),
 			Execute: func(callCtx context.Context, execution tools.Execution) (tools.ExecutionResult, error) {
-				result, err := executeJSON(callCtx, execution)
+				result, err := client.Call(callCtx, encodeExecution(execution))
 				var callErr *CallError
 				if errors.As(err, &callErr) && callErr.Code != CodeToolError && callErr.Code != CodeCancelled && callErr.Code != CodeTimeout {
 					// Keep protocol/transport failures distinct from ordinary business

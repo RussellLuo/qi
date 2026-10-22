@@ -28,3 +28,14 @@ From the repository root:
 ```sh
 go -C kernel test ./core/tools
 ```
+
+Process bridges can create an isolated registration container with `NewExport()`,
+provide `Runtime()` under the same RuntimeKey, then `Seal()` and `Describe()` after
+business activation. Descriptions contain compiled defaults. `Execute()` invokes
+only the original business function, holding its exact owner/registration lease
+until the actual worker returns; idle exports hold no lease. Frameworks must watch
+`Done()/Err()`, withdraw remote contributions on retirement, and drain with
+`Close()` outside owner OnStop callbacks. Middleware, local preparation/inspection,
+and mutations after sealing retire the export. Ordinary `NewRuntime()` retains
+its existing behavior. See [process](../../../builtin/tools/process/README.zh.md)
+for the wire contract, budgets and Child assembly.

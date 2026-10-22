@@ -33,6 +33,7 @@ type compiledDefinition struct {
 }
 
 type Runtime struct {
+	export        *Export
 	contributions *registry.Registry[contribution]
 }
 
@@ -46,7 +47,38 @@ func (r *Runtime) Register(owner contracts.ContributionOwner, definition Definit
 
 // RegisterBatch compiles and publishes a package's Tool definitions as one
 // registry mutation. No member is visible when any schema or name conflicts.
-func (r *Runtime) RegisterBatch(owner contracts.ContributionOwner, definitions []Definition) (func(), error) {
+func (r *Runtime) RegisterBatch(owner contracts.ContributionOwner, definitions []Definition) (dispose func(), err error) {
+	if r == nil || r.contributions == nil {
+		return nil, contracts.ErrClosed
+	}
+	var names []string
+	if e := r.export; e != nil {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		names = make([]string, len(definitions))
+		for i, d := range definitions {
+			names[i] = d.Name
+		}
+		var id contracts.OwnerIdentity
+		if owner != nil {
+			id = owner.Identity()
+		}
+		if e.err != nil {
+			return nil, e.err
+		}
+		if e.phase != "collect" {
+			return nil, e.retireLocked(e.phase, "register", id, names, fmt.Errorf("unsupported registration after seal"))
+		}
+		defer func() {
+			if err != nil {
+				err = e.retireLocked(e.phase, "register", id, names, err)
+			}
+		}()
+		if owner != nil {
+			owner = exportOwner{owner, e, names}
+		}
+	}
+
 	if len(definitions) == 0 {
 		return nil, errors.New("tool batch is empty")
 	}
@@ -70,10 +102,29 @@ func (r *Runtime) RegisterBatch(owner contracts.ContributionOwner, definitions [
 		})
 	}
 
-	return r.contributions.RegisterBatch(owner, registrations)
+	dispose, err = r.contributions.RegisterBatch(owner, registrations)
+	if err != nil || r.export == nil {
+		return dispose, err
+	}
+	original := dispose
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			e := r.export
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			if e.phase == "ready" {
+				e.retireLocked(e.phase, "disposer", owner.Identity(), names, fmt.Errorf("unsupported contribution withdrawal"))
+			}
+			original()
+		})
+	}, nil
 }
 
 func (r *Runtime) RegisterMiddleware(owner contracts.ContributionOwner, middleware Middleware) (func(), error) {
+	if err := r.rejectExport("middleware", owner); err != nil {
+		return nil, err
+	}
 	if middleware.ID == "" || (middleware.Pre == nil && middleware.Execute == nil && middleware.Post == nil) {
 		return nil, errors.New("tool middleware requires id and at least one stage")
 	}
@@ -83,6 +134,9 @@ func (r *Runtime) RegisterMiddleware(owner contracts.ContributionOwner, middlewa
 }
 
 func (r *Runtime) Prepare() (*Snapshot, error) {
+	if err := r.rejectExport("prepare", nil); err != nil {
+		return nil, err
+	}
 	return r.PrepareSelected(nil)
 }
 
@@ -90,6 +144,9 @@ func (r *Runtime) Prepare() (*Snapshot, error) {
 // runtime-wide Tool middleware chain. A nil selection means all Tools; a
 // non-nil empty selection intentionally exposes none.
 func (r *Runtime) PrepareSelected(names []string) (*Snapshot, error) {
+	if err := r.rejectExport("prepare-selected", nil); err != nil {
+		return nil, err
+	}
 	if r == nil || r.contributions == nil {
 		return nil, contracts.ErrClosed
 	}
@@ -125,6 +182,9 @@ func stringSet(values []string) map[string]struct{} {
 }
 
 func (r *Runtime) Schemas() []Schema {
+	if err := r.rejectExport("schemas", nil); err != nil {
+		return nil
+	}
 	prepared, err := r.Prepare()
 	if err != nil {
 		return nil
@@ -136,6 +196,9 @@ func (r *Runtime) Schemas() []Schema {
 }
 
 func (r *Runtime) Close() {
+	if err := r.rejectExport("runtime-close", nil); err != nil {
+		return
+	}
 	if r != nil && r.contributions != nil {
 		r.contributions.Close()
 	}

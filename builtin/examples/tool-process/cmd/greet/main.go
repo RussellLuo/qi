@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	greet "github.com/RussellLuo/qi/builtin/examples/tool-process"
+	greet "github.com/RussellLuo/qi/builtin/examples/tool-plugin/plugin"
 	toolprocess "github.com/RussellLuo/qi/builtin/tools/process"
 )
 

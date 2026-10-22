@@ -42,12 +42,12 @@ cp builtin/examples/tool-plugin/profile.yaml dist/tool-plugin/profile.yaml
 
 ## 如何实现
 
-所有实现都在 [plugin.go](plugin.go)：
+业务实现位于 [plugin/plugin.go](plugin/plugin.go)，由本示例和进程示例共同导入：
 
 - `Spec` 声明 `tools.RuntimeKey.Spec()` 依赖。`Activate` 通过 `scope.Get(tools.RuntimeKey)` 取得 Tool Runtime，再向 `runtime.Bind(scope).Register` 传入 `tools.Definition`，声明 `greet`、必填的字符串参数 `name` 和字符串结果。Tool Runtime 在执行前验证参数。
 - 执行函数解析 `name`，返回 `json.Marshal("Hello, " + args.Name + "!")`。`tools.JSONTool` 将结果同时用于结构化 `Value` 和模型可见文本。
 - Binding 将工具贡献归于当前 Scope generation；插件停止时自动撤销。
-- `Extension` 发布插件类型，[Profile](profile.yaml) 通过 `example/tool-plugin` 选择实例。
+- 外层 [extension.go](extension.go) 的 `Extension` 发布共享 Plugin 类型，[Profile](profile.yaml) 通过 `example/tool-plugin` 选择实例。
 
 示例属于 builtin Go module，通过公开 API 依赖 Qi。
 

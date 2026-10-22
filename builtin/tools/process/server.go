@@ -2,13 +2,13 @@ package process
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 
 	"github.com/RussellLuo/gordis"
 	rpc "github.com/RussellLuo/gordis-rpc"
-	"github.com/RussellLuo/qi/kernel/core/protocol"
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
 
@@ -32,84 +32,88 @@ func (plugin *runtimeProvider) Spec() gordis.PluginSpec {
 }
 
 func (plugin *runtimeProvider) Activate(_ context.Context, scope *gordis.Scope) error {
-	runtime := tools.NewRuntime()
-	if err := scope.Defer("runtime", func(context.Context) error { runtime.Close(); return nil }); err != nil {
-		runtime.Close()
+	export := tools.NewExport()
+	if err := scope.Defer("runtime", func(context.Context) error { export.Close(); return nil }); err != nil {
+		export.Close()
 		return err
 	}
-	if err := scope.Provide(tools.RuntimeKey, runtime); err != nil {
+	if err := scope.AfterReady("tool export retirement", func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-export.Done():
+			return export.Err()
+		}
+	}); err != nil {
 		return err
 	}
-	return scope.Provide(ProviderKey, Provider(&exporter{
-		runtime: runtime,
-		pending: make(chan struct{}, plugin.capacity),
-	}))
+	if err := scope.Provide(tools.RuntimeKey, export.Runtime()); err != nil {
+		return err
+	}
+	return scope.Provide(ProviderKey, Provider(&exporter{export: export, pending: make(chan struct{}, plugin.capacity)}))
 }
 
-// exporter is an ordinary Service over the same Runtime used by business Plugins.
-// ProviderBinding validates its definitions after all Unit instances are Ready.
+// ListTools seals only after Unit activation (ProviderBinding.Validate). Each
+// business program exposes its actual catalog inside its own RPC Session.
 type exporter struct {
-	runtime *tools.Runtime
+	export  *tools.Export
 	pending chan struct{}
 }
 
-func (plugin *exporter) ListTools(context.Context) ([]Tool, error) {
-	snapshot, err := plugin.runtime.Prepare()
+func (p *exporter) ListTools(ctx context.Context) ([]Tool, error) {
+	if err := p.export.Seal(); err != nil {
+		return nil, err
+	}
+	ds, err := p.export.Describe(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer snapshot.Close()
-	return describeTools(snapshot.Descriptions())
+	return describeTools(ds)
 }
-
-func (plugin *exporter) CallTool(ctx context.Context, request CallRequest) (CallResponse, error) {
+func (p *exporter) CallTool(ctx context.Context, request CallRequest) (response CallResponse, err error) {
 	select {
-	case plugin.pending <- struct{}{}:
-		defer func() { <-plugin.pending }()
+	case p.pending <- struct{}{}:
+		defer func() { <-p.pending }()
 	default:
 		return CallResponse{Error: &CallError{Code: CodeBackpressure, Message: "Tool process is at capacity"}}, nil
 	}
-	response, err := plugin.call(ctx, request)
-	if err != nil {
-		var failure *CallError
-		if !errors.As(err, &failure) {
-			failure = invalidResponse("invalid Tool call")
+	// Recover at the raw worker boundary after Export has released its owner lease.
+	defer func() {
+		if recover() != nil {
+			response = CallResponse{Error: &CallError{Code: CodePanic, Message: "Tool execution panicked"}}
+			err = nil
 		}
-		response = CallResponse{Error: failure}
+	}()
+	if ValidateCall(request) != nil {
+		return CallResponse{Error: invalidResponse("invalid Tool call")}, nil
+	}
+	if p.export.Err() != nil {
+		return CallResponse{Error: &CallError{Code: CodeRetired, Message: "Tool export retired"}}, nil
+	}
+	result, executeErr := p.export.Execute(ctx, decodeExecution(request))
+	wire, codecErr := encodeResult(result)
+	if codecErr != nil {
+		return CallResponse{Error: invalidResponse("unencodable Tool result")}, nil
+	}
+	response.Result = &wire
+	if executeErr != nil {
+		code := CodeToolError
+		if errors.Is(executeErr, context.Canceled) {
+			code = CodeCancelled
+		}
+		if errors.Is(executeErr, context.DeadlineExceeded) {
+			code = CodeTimeout
+		}
+		if len(executeErr.Error()) > MaxErrorMessage {
+			return CallResponse{Error: invalidResponse("oversized Tool error")}, nil
+		}
+		response.Error = &CallError{Code: code, Message: executeErr.Error()}
+	}
+	raw, encodeErr := json.Marshal(response)
+	if encodeErr != nil || len(raw) > MaxResultBytes {
+		return CallResponse{Error: invalidResponse("oversized Tool result")}, nil
 	}
 	return response, nil
-}
-
-func (plugin *exporter) call(ctx context.Context, request CallRequest) (CallResponse, error) {
-	if ValidateCall(request) != nil {
-		return CallResponse{}, invalidResponse("invalid Tool call")
-	}
-	snapshot, err := plugin.runtime.Prepare()
-	if err != nil {
-		return CallResponse{}, invalidResponse("Runtime unavailable")
-	}
-	defer snapshot.Close()
-	descriptions := snapshot.Descriptions()
-	if _, err = describeTools(descriptions); err != nil {
-		return CallResponse{}, invalidResponse("unsupported Tool definitions")
-	}
-	call, err := snapshot.Prepare(protocol.ToolCall{ID: protocol.ToolCallID(request.ToolCallID), Name: request.Tool, Arguments: string(request.Arguments)})
-	if err != nil {
-		return CallResponse{}, invalidResponse("unknown Tool")
-	}
-	defer call.Close()
-	// Keep the deadline visible to wireResult: Runtime's private execution
-	// context is otherwise lost in ABORTED_BEFORE_DISPATCH results.
-	for _, d := range descriptions {
-		if d.Name == request.Tool && d.Timeout > 0 {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, d.Timeout)
-			defer cancel()
-			break
-		}
-	}
-	result, err := call.Execute(ctx)
-	return wireResult(ctx, result, err)
 }
 
 func unitOptions(prototype gordis.Plugin, supplied ...ServerOptions) (rpc.ServeUnitOptions, error) {

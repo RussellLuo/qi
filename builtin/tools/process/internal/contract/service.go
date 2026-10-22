@@ -3,8 +3,6 @@ package contract
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"github.com/RussellLuo/gordis"
 )
@@ -12,7 +10,7 @@ import (
 //go:generate go run github.com/RussellLuo/gordis-rpc/cmd/rpcgen -type Provider -key Key -version Version -package bindings -out ../bindings/provider.go
 
 const ID = "qi/tools/provider"
-const Version = "1"
+const Version = "2"
 
 type Provider interface {
 	ListTools(context.Context) ([]Tool, error)
@@ -28,25 +26,51 @@ const (
 	FailureAbort  FailureMode = "abort"
 )
 
+// Byte slices preserve JSON bytes, including whitespace and large integers.
 type Tool struct {
-	Name          string          `json:"name"`
-	Description   string          `json:"description"`
-	Parameters    json.RawMessage `json:"parameters"`
-	Output        json.RawMessage `json:"output"`
-	TimeoutMillis int64           `json:"timeoutMillis"`
-	FailureMode   FailureMode     `json:"failureMode"`
+	Name         string      `json:"name"`
+	Description  string      `json:"description"`
+	Parameters   []byte      `json:"parameters"`
+	Output       []byte      `json:"output"`
+	TimeoutNanos int64       `json:"timeoutNanos"`
+	FailureMode  FailureMode `json:"failureMode"`
+	DeferLoading bool        `json:"deferLoading"`
 }
 
-// CallRequest uses the Runtime call identity; the RPC session fixes generation.
 type CallRequest struct {
-	Tool       string          `json:"tool"`
-	Arguments  json.RawMessage `json:"arguments"`
-	ToolCallID string          `json:"toolCallId"`
+	AgentID       string `json:"agentId"`
+	SessionID     string `json:"sessionId"`
+	Turn          int64  `json:"turn"`
+	Step          int64  `json:"step"`
+	CWD           string `json:"cwd"`
+	Tool          string `json:"tool"`
+	ToolCallID    string `json:"toolCallId"`
+	CallArguments string `json:"callArguments"`
+	Arguments     []byte `json:"arguments"`
 }
 
 type CallResponse struct {
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *CallError      `json:"error,omitempty"`
+	Result *Result    `json:"result,omitempty"`
+	Error  *CallError `json:"error,omitempty"`
+}
+
+type Result struct {
+	IsError       bool     `json:"isError"`
+	Value         []byte   `json:"value"`
+	Failure       *Failure `json:"failure"`
+	Content       []byte   `json:"content"`
+	Meta          []byte   `json:"meta"`
+	Contexts      [][]byte `json:"contexts"`
+	ConcludesTurn bool     `json:"concludesTurn"`
+}
+type Failure struct {
+	Message string       `json:"message"`
+	Info    *FailureInfo `json:"info"`
+}
+type FailureInfo struct {
+	Name   string  `json:"name"`
+	Code   string  `json:"code"`
+	Reason *string `json:"reason"`
 }
 
 type CallError struct {
@@ -64,7 +88,9 @@ func (e *CallError) Error() string {
 	if e == nil {
 		return ""
 	}
-	return fmt.Sprintf("toolprocess: %s: %s", e.Code, e.Message)
+	// Keep the business message identical when Host Runtime turns a raw error
+	// into its failure result. Code remains available through errors.As.
+	return e.Message
 }
 
 func (e *CallError) Unwrap() error {

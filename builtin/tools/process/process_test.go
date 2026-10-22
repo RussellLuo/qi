@@ -33,7 +33,7 @@ func TestProcessRuntime(t *testing.T) {
 	if out, e := cmd.CombinedOutput(); e != nil {
 		t.Fatalf("build %v %s", e, out)
 	}
-	for _, mode := range []string{"normal", "batch", "validate", "activate", "schema", "deferred", "large-timeout", "fractional-timeout", "meta", "contexts", "concludes", "content", "multiple", "invalid-json", "wrong-output", "oversize", "error", "abort-error", "panic", "cancelled", "timeout", "waitstop", "cleanup-error", "background", "empty-environment"} {
+	for _, mode := range []string{"normal", "batch", "validate", "activate", "schema", "deferred", "large-timeout", "fractional-timeout", "negative-timeout", "middleware", "meta", "contexts", "concludes", "content", "multiple", "invalid-json", "wrong-output", "oversize", "error", "abort-error", "panic", "cancelled", "timeout", "waitstop", "cleanup-error", "background", "empty-environment"} {
 		t.Run("candidate-"+mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
@@ -62,7 +62,7 @@ func TestProcessRuntime(t *testing.T) {
 				t.Fatal(e)
 			}
 			instance, e := h.Env().MountReady(ctx, gordis.InstanceSpec{ID: "remote", Plugin: fixture.ID, Config: raw})
-			rejected := mode == "validate" || mode == "activate" || mode == "schema" || mode == "deferred" || mode == "large-timeout" || mode == "fractional-timeout"
+			rejected := mode == "validate" || mode == "activate" || mode == "schema" || mode == "middleware"
 			l := active.client
 			if rejected {
 				if e == nil || len(r.Schemas()) != 0 {
@@ -136,12 +136,16 @@ func TestProcessRuntime(t *testing.T) {
 					snapshot.Close()
 					expected := ""
 					switch mode {
-					case "meta", "contexts", "concludes", "content", "multiple", "invalid-json", "wrong-output", "oversize":
+					case "invalid-json", "wrong-output":
+						expected = "invalid_result"
+					case "oversize":
 						expected = CodeHostValidation
+					case "fractional-timeout":
+						expected = "ABORTED_BEFORE_DISPATCH"
 					case "error", "abort-error":
 						expected = "execution"
 					case "panic":
-						expected = CodeTransport
+						expected = CodePanic
 					case "cancelled":
 						expected = "cancelled"
 					case "timeout":

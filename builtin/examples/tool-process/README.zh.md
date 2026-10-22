@@ -45,14 +45,16 @@ cp builtin/examples/tool-process/profile.yaml dist/tool-process/profile.yaml
 
 ## 如何实现
 
-- [plugin.go](plugin.go) 与进程内示例使用相同的普通 Plugin 写法，通过 `runtime.Bind(scope).Register` 注册 `greet`。
-- [cmd/greet/main.go](cmd/greet/main.go) 调用 `process.Main(new(greet.Plugin))`，将 Plugin 作为独立程序运行。
+- [共享 Plugin](../tool-plugin/plugin/plugin.go) 是进程内示例和本示例唯一的业务实现，通过 `runtime.Bind(scope).Register` 注册 `greet`。
+- [cmd/greet/main.go](cmd/greet/main.go) 直接导入同一个业务包，调用 `process.Main(new(greet.Plugin))`；不导入本地 Extension 或 Host 启动装配。
 - [Profile](profile.yaml) 通过程序路径选择工具，`config` 直接填写业务配置：
 
 ```yaml
 - id: greet
   plugin: ./packages/greet/greet
 ```
+
+两个示例保留各自的构建和交付方式，业务源码只有一份。两个 Profile 的实例 ID、业务配置和消费者相同，仅 `greet.plugin` 从 `example/tool-plugin` 改为程序路径。本例无业务配置；本地部署须先将 Extension 编入 Host，进程部署须提供工具程序。
 
 相对路径以所选 Profile 文件目录为基准，因此从其他工作目录运行或整体搬迁后仍可使用。
 

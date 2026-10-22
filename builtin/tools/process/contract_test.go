@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/RussellLuo/qi/builtin/tools/process/internal/contract"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -20,13 +21,10 @@ func TestProviderPayloadBoundaries(t *testing.T) {
 	for _, change := range []func(*Tool){
 		func(d *Tool) { d.Name = "invalid/name" },
 		func(d *Tool) { d.Name = strings.Repeat("x", MaxNameBytes+1) },
-		func(d *Tool) { d.Description = "" },
 		func(d *Tool) { d.Description = strings.Repeat("x", MaxDescriptionBytes+1) },
 		func(d *Tool) { d.Parameters = json.RawMessage(`broken`) },
 		func(d *Tool) { d.Output = json.RawMessage(`broken`) },
 		func(d *Tool) { d.Output = json.RawMessage(`"` + strings.Repeat("x", MaxSchemaBytes) + `"`) },
-		func(d *Tool) { d.TimeoutMillis = -1 },
-		func(d *Tool) { d.TimeoutMillis = MaxToolTimeout.Milliseconds() + 1 },
 		func(d *Tool) { d.FailureMode = "unknown" },
 	} {
 		d := valid
@@ -93,10 +91,10 @@ func TestClientErrorClassification(t *testing.T) {
 func TestClientRejectsInvalidRemoteResponses(t *testing.T) {
 	for _, response := range []CallResponse{
 		{},
-		{Result: json.RawMessage(`{}`), Error: NewToolError("both")},
+		{Result: &contract.Result{Content: []byte(`broken`)}},
 		{Error: &CallError{Code: "unknown-code", Message: "invalid envelope"}},
 		{Error: &CallError{Code: CodeToolError, Message: strings.Repeat("x", MaxErrorMessage+1)}},
-		{Result: json.RawMessage(`"` + strings.Repeat("x", MaxResultBytes) + `"`)},
+		{Result: &contract.Result{Value: []byte(strings.Repeat("x", MaxResultBytes))}},
 	} {
 		client := fakeClient(fakePackage{response: response})
 		var err error

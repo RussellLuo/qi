@@ -105,7 +105,7 @@ func testComposition(t *testing.T, binary string) {
 							t.Fatal(e)
 						}
 						var out map[string]any
-						if e = json.Unmarshal(v, &out); e != nil {
+						if e = json.Unmarshal(v.Value, &out); e != nil {
 							t.Fatal(e)
 						}
 						return out

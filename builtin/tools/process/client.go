@@ -7,6 +7,7 @@ import (
 
 	rpc "github.com/RussellLuo/gordis-rpc"
 	"github.com/RussellLuo/qi/builtin/tools/process/internal/contract"
+	"github.com/RussellLuo/qi/kernel/core/tools"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -47,44 +48,58 @@ func (client *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	return out, nil
 }
 
-func (client *Client) Call(ctx context.Context, request CallRequest) (json.RawMessage, error) {
+// Call preserves the complete raw result and structured call error. Host Runtime
+// alone validates the result and applies the definition's failure policy.
+func (client *Client) Call(ctx context.Context, request CallRequest) (tools.ExecutionResult, error) {
+	empty := tools.ExecutionResult{}
 	if err := ctx.Err(); err != nil {
-		return nil, client.mapError(ctx, err)
+		return empty, client.mapError(ctx, err)
 	}
-	if err := ValidateCall(request); err != nil {
-		return nil, invalidResponse("invalid Tool call")
+	if ValidateCall(request) != nil {
+		return empty, invalidResponse("invalid Tool call")
 	}
 	select {
 	case client.pending <- struct{}{}:
 		defer func() { <-client.pending }()
 	default:
-		return nil, &CallError{Code: CodeBackpressure, Message: "Tool process is at capacity"}
+		return empty, &CallError{Code: CodeBackpressure, Message: "Tool process is at capacity"}
 	}
 	response, err := client.remote.CallTool(ctx, request)
 	if err != nil {
-		return nil, client.mapError(ctx, err)
+		return empty, client.mapError(ctx, err)
+	}
+	raw, err := json.Marshal(response)
+	if err != nil || len(raw) > MaxResultBytes {
+		return empty, invalidResponse("oversized Tool response")
+	}
+	result := empty
+	if response.Result != nil {
+		result, err = decodeResult(*response.Result)
+		if err != nil {
+			return empty, invalidResponse("invalid canonical Tool content")
+		}
+	} else if response.Error == nil {
+		return empty, invalidResponse("missing Tool result")
 	}
 	if response.Error != nil {
-		if len(response.Result) != 0 || len(response.Error.Message) > MaxErrorMessage {
-			return nil, invalidResponse("invalid error response")
+		e := response.Error
+		if len(e.Message) > MaxErrorMessage || e.Message == "" {
+			return empty, invalidResponse("invalid Tool error")
 		}
-		switch response.Error.Code {
-		case CodeToolError, CodeHostValidation, CodeTransport, CodeBackpressure, CodeCancelled, CodeTimeout:
+		switch e.Code {
+		case CodeToolError, CodeHostValidation, CodeTransport, CodeBackpressure, CodeCancelled, CodeTimeout, CodePanic, CodeRetired:
 		default:
-			return nil, invalidResponse("unknown error category")
+			return empty, invalidResponse("unknown error category")
 		}
-		if response.Error.Code == CodeCancelled {
-			response.Error = contract.NewCallError(response.Error.Code, response.Error.Message, context.Canceled)
+		if e.Code == CodeCancelled {
+			e = contract.NewCallError(e.Code, e.Message, context.Canceled)
 		}
-		if response.Error.Code == CodeTimeout {
-			response.Error = contract.NewCallError(response.Error.Code, response.Error.Message, context.DeadlineExceeded)
+		if e.Code == CodeTimeout {
+			e = contract.NewCallError(e.Code, e.Message, context.DeadlineExceeded)
 		}
-		return nil, response.Error
+		return result, e
 	}
-	if validateJSONDocument(response.Result, MaxResultBytes, "result") != nil {
-		return nil, invalidResponse("invalid result")
-	}
-	return response.Result, nil
+	return result, nil
 }
 
 func (client *Client) mapError(ctx context.Context, err error) error {

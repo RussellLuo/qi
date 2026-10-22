@@ -16,7 +16,7 @@ import (
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
 
-var childExecutable string
+var childExecutable, legacyExecutable string
 
 func TestMain(m *testing.M) {
 	directory, err := os.MkdirTemp("", "qi-pt01-child-")
@@ -28,6 +28,11 @@ func TestMain(m *testing.M) {
 	command := exec.Command("go", "build", "-race", "-o", childExecutable, "./testdata/greet")
 	if output, err := command.CombinedOutput(); err != nil {
 		_ = os.RemoveAll(directory)
+		panic(string(output) + err.Error())
+	}
+	legacyExecutable = filepath.Join(directory, "legacy")
+	command = exec.Command("go", "build", "-race", "-o", legacyExecutable, "./testdata/legacy")
+	if output, err := command.CombinedOutput(); err != nil {
 		panic(string(output) + err.Error())
 	}
 	code := m.Run()

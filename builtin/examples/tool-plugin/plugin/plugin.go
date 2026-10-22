@@ -1,4 +1,4 @@
-// Package greet demonstrates the ordinary Qi tool author model.
+// Package greet provides the shared greeting Plugin for local and process deployment.
 package greet
 
 import (
@@ -9,7 +9,7 @@ import (
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
 
-const PluginID = "example/tool-process"
+const PluginID = "example/tool-plugin"
 
 type Plugin struct{}
 

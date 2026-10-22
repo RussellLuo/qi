@@ -52,7 +52,7 @@ func (c *providerClient) CallTool(ctx context.Context, a0 contract.CallRequest) 
 	if !ok || len(fields) != 1 {
 		return result, fmt.Errorf("CallTool: expected value response field")
 	}
-	if err := providerValidate4(value); err != nil {
+	if err := providerValidate5(value); err != nil {
 		return result, err
 	}
 
@@ -80,7 +80,7 @@ func (c *providerClient) ListTools(ctx context.Context) ([]contract.Tool, error)
 	if !ok || len(fields) != 1 {
 		return result, fmt.Errorf("ListTools: expected value response field")
 	}
-	if err := providerValidate7(value); err != nil {
+	if err := providerValidate21(value); err != nil {
 		return result, err
 	}
 
@@ -213,16 +213,40 @@ func providerValidate0(raw json.RawMessage) error {
 	for name, value := range fields {
 		_ = value
 		switch name {
+		case "agentId":
+			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "sessionId":
+			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "turn":
+			if err := providerValidate2(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "step":
+			if err := providerValidate2(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "cwd":
+			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
 		case "tool":
 			if err := providerValidate1(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
-		case "arguments":
-			if err := providerValidate2(value); err != nil {
-				return fmt.Errorf("field %s: %w", name, err)
-			}
 		case "toolCallId":
 			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "callArguments":
+			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "arguments":
+			if err := providerValidate3(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
 		default:
@@ -242,20 +266,37 @@ func providerValidate1(raw json.RawMessage) error {
 }
 
 func providerValidate2(raw json.RawMessage) error {
-	if !json.Valid(raw) {
-		return fmt.Errorf("invalid raw JSON value")
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("null is invalid for int64")
 	}
-	return nil
+
+	var value int64
+	return json.Unmarshal(raw, &value)
 }
 
 func providerValidate3(raw json.RawMessage) error {
-	if !json.Valid(raw) {
-		return fmt.Errorf("invalid raw JSON value")
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
 	}
-	return nil
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var decoded []byte
+	return json.Unmarshal(raw, &decoded)
 }
 
 func providerValidate4(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("null is invalid for byte")
+	}
+
+	var value byte
+	return json.Unmarshal(raw, &value)
+}
+
+func providerValidate5(raw json.RawMessage) error {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return fmt.Errorf("null is invalid for contract.CallResponse")
 	}
@@ -268,11 +309,11 @@ func providerValidate4(raw json.RawMessage) error {
 		_ = value
 		switch name {
 		case "result":
-			if err := providerValidate2(value); err != nil {
+			if err := providerValidate6(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
 		case "error":
-			if err := providerValidate5(value); err != nil {
+			if err := providerValidate19(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
 		default:
@@ -282,15 +323,230 @@ func providerValidate4(raw json.RawMessage) error {
 	return nil
 }
 
-func providerValidate5(raw json.RawMessage) error {
+func providerValidate6(raw json.RawMessage) error {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil
 	}
 
-	return providerValidate6(raw)
+	return providerValidate7(raw)
 }
 
-func providerValidate6(raw json.RawMessage) error {
+func providerValidate7(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("null is invalid for contract.Result")
+	}
+
+	fields, err := providerObject(raw)
+	if err != nil {
+		return err
+	}
+	for name, value := range fields {
+		_ = value
+		switch name {
+		case "isError":
+			if err := providerValidate8(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "value":
+			if err := providerValidate9(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "failure":
+			if err := providerValidate10(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "content":
+			if err := providerValidate15(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "meta":
+			if err := providerValidate16(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "contexts":
+			if err := providerValidate17(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "concludesTurn":
+			if err := providerValidate8(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		default:
+			return fmt.Errorf("unknown DTO field %q", name)
+		}
+	}
+	return nil
+}
+
+func providerValidate8(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("null is invalid for bool")
+	}
+
+	var value bool
+	return json.Unmarshal(raw, &value)
+}
+
+func providerValidate9(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var decoded []byte
+	return json.Unmarshal(raw, &decoded)
+}
+
+func providerValidate10(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	return providerValidate11(raw)
+}
+
+func providerValidate11(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("null is invalid for contract.Failure")
+	}
+
+	fields, err := providerObject(raw)
+	if err != nil {
+		return err
+	}
+	for name, value := range fields {
+		_ = value
+		switch name {
+		case "message":
+			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "info":
+			if err := providerValidate12(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		default:
+			return fmt.Errorf("unknown DTO field %q", name)
+		}
+	}
+	return nil
+}
+
+func providerValidate12(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	return providerValidate13(raw)
+}
+
+func providerValidate13(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("null is invalid for contract.FailureInfo")
+	}
+
+	fields, err := providerObject(raw)
+	if err != nil {
+		return err
+	}
+	for name, value := range fields {
+		_ = value
+		switch name {
+		case "name":
+			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "code":
+			if err := providerValidate1(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "reason":
+			if err := providerValidate14(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		default:
+			return fmt.Errorf("unknown DTO field %q", name)
+		}
+	}
+	return nil
+}
+
+func providerValidate14(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	return providerValidate1(raw)
+}
+
+func providerValidate15(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var decoded []byte
+	return json.Unmarshal(raw, &decoded)
+}
+
+func providerValidate16(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var decoded []byte
+	return json.Unmarshal(raw, &decoded)
+}
+
+func providerValidate17(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return err
+	}
+	for _, value := range values {
+		if err := providerValidate18(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func providerValidate18(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var decoded []byte
+	return json.Unmarshal(raw, &decoded)
+}
+
+func providerValidate19(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	return providerValidate20(raw)
+}
+
+func providerValidate20(raw json.RawMessage) error {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return fmt.Errorf("null is invalid for contract.CallError")
 	}
@@ -317,7 +573,7 @@ func providerValidate6(raw json.RawMessage) error {
 	return nil
 }
 
-func providerValidate7(raw json.RawMessage) error {
+func providerValidate21(raw json.RawMessage) error {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil
 	}
@@ -327,14 +583,14 @@ func providerValidate7(raw json.RawMessage) error {
 		return err
 	}
 	for _, value := range values {
-		if err := providerValidate8(value); err != nil {
+		if err := providerValidate22(value); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func providerValidate8(raw json.RawMessage) error {
+func providerValidate22(raw json.RawMessage) error {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return fmt.Errorf("null is invalid for contract.Tool")
 	}
@@ -355,19 +611,23 @@ func providerValidate8(raw json.RawMessage) error {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
 		case "parameters":
-			if err := providerValidate2(value); err != nil {
+			if err := providerValidate23(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
 		case "output":
+			if err := providerValidate24(value); err != nil {
+				return fmt.Errorf("field %s: %w", name, err)
+			}
+		case "timeoutNanos":
 			if err := providerValidate2(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
-		case "timeoutMillis":
-			if err := providerValidate9(value); err != nil {
+		case "failureMode":
+			if err := providerValidate25(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
-		case "failureMode":
-			if err := providerValidate10(value); err != nil {
+		case "deferLoading":
+			if err := providerValidate8(value); err != nil {
 				return fmt.Errorf("field %s: %w", name, err)
 			}
 		default:
@@ -377,16 +637,33 @@ func providerValidate8(raw json.RawMessage) error {
 	return nil
 }
 
-func providerValidate9(raw json.RawMessage) error {
+func providerValidate23(raw json.RawMessage) error {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return fmt.Errorf("null is invalid for int64")
+		return nil
 	}
 
-	var value int64
-	return json.Unmarshal(raw, &value)
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var decoded []byte
+	return json.Unmarshal(raw, &decoded)
 }
 
-func providerValidate10(raw json.RawMessage) error {
+func providerValidate24(raw json.RawMessage) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var decoded []byte
+	return json.Unmarshal(raw, &decoded)
+}
+
+func providerValidate25(raw json.RawMessage) error {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return fmt.Errorf("null is invalid for contract.FailureMode")
 	}

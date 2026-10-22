@@ -169,6 +169,14 @@ func TestToolFailuresBecomeStructuredResults(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// A short deadline may expire before the worker is scheduled. Assert
+			// the classification against actual dispatch instead of assuming it.
+			dispatched := false
+			invoke := test.definition.Execute
+			test.definition.Execute = func(ctx context.Context, e Execution) (ExecutionResult, error) {
+				dispatched = true
+				return invoke(ctx, e)
+			}
 			runtime := NewRuntime()
 			if _, err := runtime.Register(newTestOwner("tool", 1), test.definition); err != nil {
 				t.Fatal(err)
@@ -206,6 +214,9 @@ func TestToolFailuresBecomeStructuredResults(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 
+			if test.name == "timeout" && !dispatched {
+				test.wantCode = "ABORTED_BEFORE_DISPATCH"
+			}
 			if result.Error == nil || result.Error.Info == nil || result.Error.Info.Code != test.wantCode {
 				t.Fatalf("failure = %+v, want %q", result.Error, test.wantCode)
 			}

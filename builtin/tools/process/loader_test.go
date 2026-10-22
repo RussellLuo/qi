@@ -190,7 +190,7 @@ func TestLoaderProcessAndIndependentConfigurations(t *testing.T) {
 }
 
 func TestLoaderFailureBeforeVisibility(t *testing.T) {
-	for _, mode := range []string{"validate", "activate", "schema", "deferred", "unknown-config", "deployment-config", "package", "version", "missing-executable"} {
+	for _, mode := range []string{"validate", "activate", "schema", "middleware", "unknown-config", "deployment-config", "package", "version", "missing-executable"} {
 		t.Run(mode, func(t *testing.T) {
 			o := loaderOptions()
 			raw := fixtureConfig(mode, t.TempDir(), "Hello, ")
@@ -309,7 +309,7 @@ func TestLoaderFailureCategories(t *testing.T) {
 		abort      bool
 	}{
 		{"error", "execution", false}, {"abort-error", "execution", true}, {"cancelled", "cancelled", false},
-		{"timeout", "timeout", false}, {"meta", CodeHostValidation, false}, {"panic", CodeTransport, false},
+		{"timeout", "timeout", false}, {"invalid-json", "invalid_result", false}, {"panic", CodePanic, false},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			a := mountLoader(t, loaderOptions(), fixtureConfig(tc.mode, "", ""))
@@ -319,6 +319,9 @@ func TestLoaderFailureCategories(t *testing.T) {
 			result, err := executeGreeting(t, a.runtime, context.Background())
 			if !result.IsError || result.Error.Info.Code != tc.code || (err != nil) != tc.abort {
 				t.Fatalf("result=%+v error=%v", result, err)
+			}
+			if (tc.mode == "error" || tc.mode == "abort-error") && result.Error.Message != "business failed" {
+				t.Fatal("native message changed", result.Error.Message)
 			}
 			if tc.abort {
 				var executionErr *tools.ExecutionError
