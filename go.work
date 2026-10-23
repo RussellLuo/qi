@@ -2,7 +2,6 @@ go 1.27
 
 use (
 	./builtin
-	./gordis-rpc
 	./kernel
 )
 
@@ -10,5 +9,3 @@ use (
 replace github.com/RussellLuo/qi/kernel v0.0.0 => ./kernel
 
 replace github.com/RussellLuo/qi/builtin v0.0.0 => ./builtin
-
-replace github.com/RussellLuo/gordis-rpc v0.0.0 => ./gordis-rpc

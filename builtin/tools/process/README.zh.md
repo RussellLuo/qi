@@ -32,7 +32,7 @@ RPC 契约 ID 保持 `qi/tools/provider`，Go 接口/绑定为 `Provider`、`Pro
 ```sh
 go test -race ./kernel/core/tools/... ./builtin/tools/process/...
 go generate ./builtin/tools/process/internal/contract
-go -C builtin/tools/process/internal/contract run github.com/RussellLuo/gordis-rpc/cmd/rpcgen -type Provider -key Key -version Version -package bindings -out ../bindings/provider.go -check
+go -C builtin/tools/process/internal/contract run github.com/RussellLuo/gordis/rpc/cmd/rpcgen -type Provider -key Key -version Version -package bindings -out ../bindings/provider.go -check
 ```
 
 ## Profile 与程序路径

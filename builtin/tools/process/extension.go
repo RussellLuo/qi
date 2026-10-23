@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/qi/kernel/boot/application"
 	"github.com/RussellLuo/qi/kernel/boot/profile"
 	"github.com/RussellLuo/qi/kernel/boot/registration"

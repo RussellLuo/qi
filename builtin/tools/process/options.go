@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/qi/kernel/core/tools"
 )
 

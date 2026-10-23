@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/qi/builtin/tools/process/testdata/fixture"
 )
 

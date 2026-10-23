@@ -18,7 +18,6 @@ GOWORK=off go -C kernel build -o ../dist/qi-build ./cmd/qi-build
   --output ./dist/tool-plugin/qi \
   --replace github.com/RussellLuo/qi/kernel=./kernel \
   --replace github.com/RussellLuo/qi/builtin=./builtin \
-  --replace github.com/RussellLuo/gordis-rpc=./gordis-rpc \
   --with github.com/RussellLuo/qi/builtin/examples/tool-plugin
 
 cp builtin/examples/tool-plugin/profile.yaml dist/tool-plugin/profile.yaml

@@ -12,9 +12,8 @@ Run a command-line agent with builtin components, or write your own model, tool 
 | --- | --- |
 | [kernel](kernel/README.md) | Core runtimes, public APIs, Profile startup and the `qi-build` tool. |
 | [builtin](builtin/README.md) | Builtin command-line application, model access, file tools, session persistence and complete examples. |
-| [gordis-rpc](gordis-rpc/README.md) | Independent Gordis process RPC module, incubated here before moving to its own repository. |
 
-Builtin uses public kernel APIs. Kernel does not depend on builtin.
+Builtin uses public kernel APIs. Kernel does not depend on builtin. Cross-process plugins use the independent [Gordis RPC module](https://github.com/RussellLuo/gordis/tree/main/rpc).
 
 ## Start here
 

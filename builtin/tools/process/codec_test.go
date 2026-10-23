@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/qi/builtin/tools/process/internal/bindings"
 	"github.com/RussellLuo/qi/kernel/core/protocol"
 	"github.com/RussellLuo/qi/kernel/core/tools"

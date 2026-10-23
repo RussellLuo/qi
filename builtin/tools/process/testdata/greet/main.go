@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	toolprocess "github.com/RussellLuo/qi/builtin/tools/process"
 	"github.com/RussellLuo/qi/builtin/tools/process/testdata/fixture"
 	"github.com/RussellLuo/qi/builtin/tools/process/testdata/fixture/config"

@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/gordis/rpc"
 )
 
 type legacyProvider interface {

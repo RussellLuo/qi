@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	rpc "github.com/RussellLuo/gordis-rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/qi/builtin/tools/process/internal/contract"
 	"github.com/RussellLuo/qi/kernel/core/tools"
 	"google.golang.org/grpc/codes"

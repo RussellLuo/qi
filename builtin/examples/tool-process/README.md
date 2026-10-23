@@ -17,8 +17,7 @@ GOWORK=off go -C kernel build -o ../dist/qi-build ./cmd/qi-build
 ./dist/qi-build \
   --output ./dist/tool-process/qi \
   --replace github.com/RussellLuo/qi/kernel=./kernel \
-  --replace github.com/RussellLuo/qi/builtin=./builtin \
-  --replace github.com/RussellLuo/gordis-rpc=./gordis-rpc
+  --replace github.com/RussellLuo/qi/builtin=./builtin
 
 mkdir -p dist/tool-process/packages/greet
 go -C builtin build -o ../dist/tool-process/packages/greet/greet ./examples/tool-process/cmd/greet

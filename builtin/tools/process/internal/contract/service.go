@@ -7,7 +7,7 @@ import (
 	"github.com/RussellLuo/gordis"
 )
 
-//go:generate go run github.com/RussellLuo/gordis-rpc/cmd/rpcgen -type Provider -key Key -version Version -package bindings -out ../bindings/provider.go
+//go:generate go run github.com/RussellLuo/gordis/rpc/cmd/rpcgen -type Provider -key Key -version Version -package bindings -out ../bindings/provider.go
 
 const ID = "qi/tools/provider"
 const Version = "2"
