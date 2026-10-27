@@ -20,11 +20,11 @@
 
 ## 1. 构建包含扩展的应用
 
-从完整仓库根目录构建工具插件应用，构建工具放在 `dist/`，应用与配置副本放在 `dist/tool-plugin/`：
+安装 Go 1.27 后，从完整仓库根目录执行。构建工具放在 `dist/`，应用与配置副本放在 `dist/tool-plugin/`：
 
 ```sh
 mkdir -p dist
-GOWORK=off go -C kernel build -o ../dist/qi-build ./cmd/qi-build
+go -C kernel build -o ../dist/qi-build ./cmd/qi-build
 ./dist/qi-build \
   --replace github.com/RussellLuo/qi/kernel=./kernel \
   --replace github.com/RussellLuo/qi/builtin=./builtin \
@@ -233,7 +233,7 @@ GOWORK=off CGO_ENABLED=0 go -C dist/tool-plugin/qi.build/project build \
 
 ### 独立 kernel 与构建环境
 
-从仓库根目录执行以下命令，kernel module 仅使用自有源码即可运行 Go 测试并构建 qi-build，无需 builtin 或可选插件源码：
+kernel 的测试及 qi-build 使用 kernel/go.mod 固定的公开依赖。构建测试通过自有夹具提供 builtin，无需仓库中的 builtin、可选插件源码或相邻 Gordis checkout。从仓库根目录执行：
 
 ```sh
 GOWORK=off go -C kernel test ./...
@@ -252,4 +252,6 @@ GOWORK=off go -C kernel build -o ../dist/qi-build ./cmd/qi-build
 
 默认 query 由 kernel 与 builtin 分别解析，两者的伪版本可以不同；隐式本地源码使用合法开发占位。生成 go.mod 明确 require 两个实际 module，记录分别保留其版本和源码。不增加 builtin 专用参数，也不改变清单或记录协议。legacy core.version 是默认两个 module 各自使用的固定 query，--source 可以分别映射 kernel 与 builtin。
 
-需要 Go 1.27、Python 3，以及已缓存或可下载的固定依赖。生成程序运行时无需 Go 或源码；应用显式选择 Profile，凭据由环境准备。子目录发布使用 kernel/vX.Y.Z 与 builtin/vX.Y.Z tag。冷缓存下载、公网发布、真实模型和其他平台仍须单独验证。
+构建工具通过 Gordis `Run → Prepare → Build` 执行；legacy 使用局部参数解析后进入同一个 Build。Qi 只保留版本策略、Extension/Compose/boot.Run 模板及两版记录编码。编译固定使用本机 OS/ARCH、`CGO_ENABLED=0`、`GOWORK=off`、清空 `GOFLAGS`、`GOTOOLCHAIN=local`；不支持交叉编译或自定义 CGO。
+
+构建需要 Go 1.27，以及已缓存或可下载的固定依赖；kernel 的进程测试还需 Python 3。生成程序运行时无需 Go 或源码；应用显式选择 Profile，凭据由环境准备。子目录发布使用 kernel/vX.Y.Z 与 builtin/vX.Y.Z tag。尚未发布的 Qi module 使用显式本地源码映射。

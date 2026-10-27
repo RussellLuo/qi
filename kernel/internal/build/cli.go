@@ -4,18 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"regexp"
+	"strings"
 
-	"gopkg.in/yaml.v3"
+	builder "github.com/RussellLuo/gordis/build"
 )
 
-func regexpGoVersion(version string) bool {
-	return regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?$`).MatchString(version)
-}
-
-func yamlManifest(m Manifest) ([]byte, error) { return yaml.Marshal(m) }
-
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	legacy := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
@@ -23,7 +18,42 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 
 		if arg == "-h" || arg == "--help" {
-			fmt.Fprintln(stdout, `Usage: qi-build [<qi_version>] [--with <package[@version][=replacement]> ...]
+			return builder.Run(ctx, []string{"--help"}, stdout, stderr, qiCommand())
+		}
+		flag, _, supplied := strings.Cut(arg, "=")
+		switch flag {
+		case "--source", "-source", "--manifest", "-manifest":
+			legacy = true
+		}
+		switch flag {
+		case "--with", "-with", "--replace", "-replace", "--source", "-source", "--manifest", "-manifest", "--output", "-output":
+			if !supplied {
+				i++ // Legacy flag values named --help are data too.
+			}
+		}
+	}
+	if !legacy {
+		return builder.Run(ctx, args, stdout, stderr, qiCommand())
+	}
+	// Only legacy flags use the compatibility parser. Both paths use Build.
+	options, err := parseLegacyCLI(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "qi-build:", err)
+		return 2
+	}
+	recordPath, err := Build(ctx, options)
+	if err != nil {
+		fmt.Fprintln(stderr, "qi-build:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Built %s\nBuild record: %s\n", options.Output, recordPath)
+	return 0
+}
+
+func qiCommand() builder.Command {
+	return builder.Command{
+		Name: "qi-build", DefaultOutput: "qi", Prepare: prepareCLI,
+		Help: `Qi: qi-build [<qi_version>] [--with <package[@version][=replacement]> ...]
                 [--replace <module[@version]=replacement> ...] [--output <file>]
        qi-build --manifest <build.yaml> --output <file> [--source <module>=<directory> ...]
 
@@ -39,28 +69,6 @@ Unspecified queries with local sources use a development placeholder, without
 querying the module remotely. --replace never selects an Extension.
 Default output: ./qi (./qi.exe on Windows); records: <output>.build.
 Existing outputs are refused. Legacy manifest keeps its strict fixed versions.
--h, --help: show this help without accessing sources or network.`)
-			return 0
-		}
-
-		switch arg {
-		case "--with", "-with", "--replace", "-replace", "--source", "-source", "--manifest", "-manifest", "--output", "-output":
-			i++ // A flag value named --help is not itself a help request.
-		}
+-h, --help: show this help without accessing sources or network.`,
 	}
-
-	options, err := parseCLI(args)
-	if err != nil {
-		fmt.Fprintln(stderr, "qi-build:", err)
-		return 2
-	}
-
-	recordPath, err := Build(ctx, options)
-	if err != nil {
-		fmt.Fprintln(stderr, "qi-build:", err)
-		return 1
-	}
-
-	fmt.Fprintf(stdout, "Built %s\nBuild record: %s\n", options.Output, recordPath)
-	return 0
 }

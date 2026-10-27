@@ -67,12 +67,12 @@ func TestGenerationStableAcrossSelectionOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	x, err := generate(first, map[string]string{CoreModule: "/tmp/my 'core"}, "1.27.1")
+	x, err := generateApplication(first)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	y, err := generate(second, map[string]string{CoreModule: "/tmp/my 'core"}, "1.27.1")
+	y, err := generateApplication(second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,41 +86,10 @@ func TestGenerationStableAcrossSelectionOrder(t *testing.T) {
 	if strings.Contains(string(x["main.go"]), CoreModule+"/internal/") {
 		t.Fatal("generated main crossed SDK boundary")
 	}
-}
-
-func TestResolvedVersionAndSourceMustMatch(t *testing.T) {
-	m := Manifest{Core: Core{Version: "v0.1.0"}}
-
-	for _, tc := range []struct {
-		name    string
-		modules []moduleInfo
-		sources map[string]string
-		want    string
-	}{
-		{"upgraded", []moduleInfo{{Path: CoreModule, Version: "v0.2.0"}}, nil, "resolved to"},
-		{"missing", nil, nil, "missing"},
-		{
-			"undeclared",
-			[]moduleInfo{{
-				Path:    CoreModule,
-				Version: "v0.1.0",
-				Replace: &moduleInfo{Path: "/other"},
-			}},
-			nil,
-			"undeclared",
-		},
-		{
-			"lost mapping",
-			[]moduleInfo{{Path: CoreModule, Version: "v0.1.0"}},
-			map[string]string{CoreModule: "/source"},
-			"missing explicit",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := checkModules(tc.modules, m, tc.sources)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("got %v; want %s", err, tc.want)
-			}
-		})
+	plugins := string(x["internal/compiledplugins/plugins_gen.go"])
+	if len(x) != 2 || strings.Count(plugins, "builtin.Extension()") != 1 ||
+		!strings.Contains(plugins, "selected0.Extension()") || !strings.Contains(plugins, "selected1.Extension()") ||
+		!strings.Contains(plugins, "application.Compose(") || !strings.Contains(string(x["main.go"]), "boot.Run(") {
+		t.Fatal("generated Qi assembly changed", plugins)
 	}
 }

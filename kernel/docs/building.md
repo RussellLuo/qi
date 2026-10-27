@@ -20,11 +20,11 @@ Start with [quick start](#quick-start), then read [extensions and replacements](
 
 ## 1. Build an application with an extension
 
-From the complete repository root, build qi-build in `dist/` and keep the tool plugin application and configuration copy in `dist/tool-plugin/`:
+With Go 1.27 installed, run from the complete repository root. Build qi-build in `dist/` and keep the tool plugin application and configuration copy in `dist/tool-plugin/`:
 
 ```sh
 mkdir -p dist
-GOWORK=off go -C kernel build -o ../dist/qi-build ./cmd/qi-build
+go -C kernel build -o ../dist/qi-build ./cmd/qi-build
 ./dist/qi-build \
   --replace github.com/RussellLuo/qi/kernel=./kernel \
   --replace github.com/RussellLuo/qi/builtin=./builtin \
@@ -233,7 +233,7 @@ The rebuilt application should print the same argument help. This is not a repla
 
 ### Independent kernel and build environment
 
-From the repository root, the kernel module can run its own Go tests and build qi-build without builtin or optional source trees:
+Kernel tests and qi-build use the public dependencies pinned in kernel/go.mod. Tests use owned builtin fixtures and need no repository builtin, optional plugin source or adjacent Gordis checkout. Run from the repository root:
 
 ```sh
 GOWORK=off go -C kernel test ./...
@@ -252,4 +252,6 @@ A generated application always includes the default builtin collection. For loca
 
 The default query applies independently to kernel and builtin; their resolved pseudo-versions may differ. An implicit local source uses a valid development placeholder. The generated go.mod requires both actual modules and the record retains each version/source. No builtin parameter or new manifest/record protocol is introduced. Legacy core.version is the fixed query used for the default module identities; --source may map kernel and builtin separately.
 
-Go 1.27, Python 3 and cached or downloadable pinned dependencies are required. The generated program runs without Go or source. Applications select an explicit Profile; provider credentials belong to the environment. Public subdirectory releases use kernel/vX.Y.Z and builtin/vX.Y.Z tags. Cold-cache download, public publication, live models and other platforms require separate validation.
+Builds require Go 1.27 and cached or downloadable pinned dependencies; kernel's process tests also need Python 3. The generated program runs without Go or source. Applications select an explicit Profile; provider credentials belong to the environment. Public subdirectory releases use kernel/vX.Y.Z and builtin/vX.Y.Z tags. Use local source mappings for Qi modules that have not been published.
+
+The tool uses Gordis `Run → Prepare → Build`; legacy arguments enter the same Build through a local compatibility parser. Qi owns version policy, Extension/Compose/boot.Run generation and its two record schemas. Compilation uses the current host OS/ARCH, `CGO_ENABLED=0`, `GOWORK=off`, empty `GOFLAGS` and `GOTOOLCHAIN=local`. Cross compilation and custom CGO settings are outside this build policy.

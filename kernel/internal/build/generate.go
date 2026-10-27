@@ -3,65 +3,11 @@ package build
 import (
 	"fmt"
 	"go/format"
-	"sort"
-	"strconv"
 	"strings"
 )
 
-func generate(m Manifest, sources map[string]string, goVersion string, replacements ...Replacement) (map[string][]byte, error) {
-	var mod strings.Builder
-	fmt.Fprintf(&mod, "module %s\n\ngo %s\n\nrequire (\n", generatedModule, goVersion)
-	versions := m.versions()
-	var modules []string
-
-	for module := range versions {
-		modules = append(modules, module)
-	}
-
-	sort.Strings(modules)
-
-	for _, module := range modules {
-		fmt.Fprintf(&mod, "\t%s %s\n", module, versions[module])
-	}
-
-	mod.WriteString(")\n")
-
-	// Local and remote replacements have different Go syntax. Sort local
-	// mappings first so generated module bytes remain repeatable.
-	sourceModules := make([]string, 0, len(sources))
-
-	for module := range sources {
-		sourceModules = append(sourceModules, module)
-	}
-
-	sort.Strings(sourceModules)
-
-	for _, module := range sourceModules {
-		version := ""
-
-		for _, replacement := range replacements {
-			if replacement.Module == module && replacement.Version != "" {
-				version = " " + replacement.Version
-			}
-		}
-
-		fmt.Fprintf(&mod, "\nreplace %s%s => %s\n", module, version, strconv.Quote(sources[module]))
-	}
-
-	for _, replacement := range replacements {
-		if _, local := sources[replacement.Module]; local {
-			continue
-		}
-
-		target, version, _ := strings.Cut(replacement.Target, "@")
-		leftVersion := ""
-		if replacement.Version != "" {
-			leftVersion = " " + replacement.Version
-		}
-
-		fmt.Fprintf(&mod, "\nreplace %s%s => %s %s\n", replacement.Module, leftVersion, target, version)
-	}
-
+// generateApplication owns only Qi assembly; Gordis generates module files.
+func generateApplication(m Manifest) (map[string][]byte, error) {
 	// Only explicitly selected factories are imported into the generated
 	// application. Their registration metadata is composed without starting a Host.
 	var plugins strings.Builder
@@ -104,7 +50,6 @@ func main() {
 }
 `, CoreModule+"/boot", CoreModule+"/boot/launch", generatedModule+"/internal/compiledplugins")
 	files := map[string][]byte{
-		"go.mod":  []byte(mod.String()),
 		"main.go": []byte(main),
 		"internal/compiledplugins/plugins_gen.go": []byte(plugins.String()),
 	}
